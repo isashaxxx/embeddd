@@ -16,6 +16,11 @@ type AiMode = 'auto' | 'ask' | 'off';
 const BLOCK_KINDS = new Set(['text', 'heading', 'callout', 'html', 'divider']);
 const isBlock = (item: Item) => BLOCK_KINDS.has(item.kind);
 const elementSize = (size: Item['display_size']): ElementSize => size === 'M' ? 'M' : size === 'L' || size === 'XL' ? 'L' : 'S';
+const pinCrop = (item: Item) => {
+  const fallback = [...item.id].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const slot = Math.abs(Number.isFinite(item.position) ? Math.round(item.position) : fallback) % 3;
+  return (['compact', 'portrait', 'tall'] as const)[slot];
+};
 
 export default function Wall({ initialCollections, initialItems }: Props) {
   const [collections, setCollections] = useState(initialCollections);
@@ -625,6 +630,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
     const isMedia = item.kind === 'image' || item.kind === 'video';
     const size = elementSize(item.display_size);
+    const crop = pinCrop(item);
     return (
       <div
         className={`card ${isBlock(item) ? 'block-card' : 'pin-card'}${selected.has(item.id) ? ' selected' : ''}`}
@@ -640,18 +646,18 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         }}
       >
         {item.kind === 'image' && (
-          <img className="media" draggable={false} loading="lazy" decoding="async" src={item.thumb || item.src || ''} alt=""
+          <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb || item.src || ''} alt=""
             style={item.width && item.height ? { aspectRatio: `${item.width}/${item.height}` } : undefined} />
         )}
 
-        {item.kind === 'video' && <video className="media" draggable={false} controls preload="none" src={item.src || ''} />}
+        {item.kind === 'video' && <video className={`media crop-${crop}`} draggable={false} controls preload="none" src={item.src || ''} />}
 
         {item.kind === 'embed' && (
           <div ref={boxRef} className="embed-box"
             style={item.ratio ? { aspectRatio: `${(100 / item.ratio).toFixed(4)}` } : { height: (item.embed_h || 480) + 'px' }}>
             {item.thumb && !playing ? (
               <>
-                <img className="media" draggable={false} loading="lazy" decoding="async" src={item.thumb} alt=""
+                <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb} alt=""
                   style={{ position: 'absolute', inset: 0, height: '100%', objectFit: 'cover' }} />
                 <button className="play" onClick={(e) => { e.stopPropagation(); setPlaying(true); }}><i /></button>
               </>
@@ -665,7 +671,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         {item.kind === 'link' && (
           item.thumb ? (
             <>
-              <img className="media" draggable={false} loading="lazy" decoding="async" src={item.thumb} alt="" />
+              <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb} alt="" />
               <div className="meta">
                 <div className="meta-txt">
                   <div className="t">{item.title || item.host}</div>

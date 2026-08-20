@@ -154,6 +154,9 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .pin-card{background:transparent;border:0;border-radius:0;overflow:visible;box-shadow:none}
 .pin-card:hover{box-shadow:none;transform:none}
 .pin-card>img.media,.pin-card>video.media{border-radius:18px}
+.pin-card .media.crop-compact{aspect-ratio:4/5;object-fit:cover}
+.pin-card .media.crop-portrait{aspect-ratio:2/3;object-fit:cover}
+.pin-card .media.crop-tall{aspect-ratio:9/16;object-fit:cover}
 .pin-card>.embed-box,.pin-card>.frame{border-radius:18px;overflow:hidden}
 .pin-card>.meta{padding:9px 8px 0}
 .pin-card>.meta .t{font-weight:600}
