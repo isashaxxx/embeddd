@@ -87,16 +87,20 @@ button{cursor:pointer;border:none;background:none;padding:0}
 
 /* ---------- account control (topbar) ---------- */
 .account-control{position:relative;margin-left:4px}
-.account-avatar-btn{width:32px;height:32px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--accent);color:var(--ink);font-weight:750;font-size:13px;flex:0 0 32px}
+.account-avatar-btn{width:32px;height:32px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--accent);color:var(--ink);font-weight:750;font-size:13px;flex:0 0 32px;border:2px solid var(--line)}
 .account-avatar-btn>img{width:100%;height:100%;object-fit:cover}
+/* Зазор до карточки — мёртвая зона, где курсор теряет :hover при движении
+   вниз к попапу. Держим hit-area (эту обёртку) сплошной от кнопки до низа
+   карточки через padding-top, а не margin/top-offset на самой карточке. */
 .account-hover-card{
-  position:absolute;z-index:9;right:0;top:calc(100% + 9px);width:250px;padding:8px;
-  background:#fff;border:1px solid var(--line-soft);border-radius:15px;box-shadow:0 18px 50px rgba(20,20,15,.18);
-  opacity:0;visibility:hidden;transform:translateY(-4px);pointer-events:none;
-  transition:opacity .14s,transform .14s,visibility .14s;
+  position:absolute;z-index:9;right:0;top:100%;width:220px;padding-top:9px;
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .14s,visibility .14s;
 }
-.account-control:hover .account-hover-card,.account-control:focus-within .account-hover-card{opacity:1;visibility:visible;transform:none;pointer-events:auto}
-.account-hover-card .account-entry{padding:6px 6px 10px;margin-bottom:4px;border-bottom:1px solid var(--line-soft);border-radius:0}
+.account-control:hover .account-hover-card,.account-control:focus-within .account-hover-card{opacity:1;visibility:visible;pointer-events:auto}
+.account-hover-card-inner{
+  padding:6px;background:#fff;border:1px solid var(--line-soft);border-radius:15px;
+  box-shadow:0 18px 50px rgba(20,20,15,.18);
+}
 .account-hover-action{width:100%;display:flex;align-items:center;gap:9px;padding:8px 7px;border-radius:9px;font-size:12px;color:var(--muted);text-align:left}
 .account-hover-action:hover{background:var(--hover);color:var(--ink)}
 .account-hover-action .ui-icon{width:15px;height:15px}
@@ -124,14 +128,6 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .move-toggle+.ai-control{margin-left:0}
 .date-sort{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:11px;outline:none}
 .tag-filter{padding:8px 11px;border-radius:999px;background:var(--accent);font-size:11px;font-weight:600}
-.reward-control{position:relative;z-index:8}
-.reward-button{height:36px;display:flex;align-items:center;gap:6px;padding:0 11px;border-radius:999px;background:var(--hover);white-space:nowrap}
-.reward-button b{font-size:11px}.reward-button span{font-size:15px}
-.rewards-menu{position:absolute;z-index:7;right:0;top:calc(100% + 9px);width:330px;max-height:min(560px,calc(100vh - 90px));overflow:auto;padding:12px;background:#fff;border:1px solid var(--line-soft);border-radius:17px;box-shadow:0 22px 60px rgba(20,20,15,.18)}
-.rewards-head{display:flex;align-items:center;justify-content:space-between;padding:4px 3px 10px}.rewards-head div{display:flex;flex-direction:column}.rewards-head small{font-size:10px;color:var(--muted)}.rewards-head b{font-size:23px}.rewards-head>span{font-size:30px}
-.xp-track{height:7px;border-radius:99px;background:var(--hover);overflow:hidden;margin-bottom:13px}.xp-track i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
-.achievement-list{display:grid;gap:6px}.achievement{display:flex;align-items:center;gap:10px;padding:9px;border-radius:12px;background:var(--hover);opacity:.48}.achievement.unlocked{opacity:1;background:rgba(198,240,74,.16)}
-.achievement>span{width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:#fff;font-size:18px}.achievement>div{min-width:0;display:flex;flex:1;flex-direction:column}.achievement b{font-size:12px}.achievement small{margin-top:2px;color:var(--muted);font-size:10px}.achievement em{margin-top:4px;color:var(--muted);font-family:var(--font-mono),monospace;font-size:9px;font-style:normal}.achievement.unlocked em{color:#638000}
 .menu-btn{display:none}
 .ai-control{position:relative;margin-left:auto;z-index:8}
 .ai-mode-button{position:relative;display:flex;align-items:center;gap:7px;padding:9px 12px;border:0;border-radius:999px;background:var(--hover);color:var(--muted);font-size:11px;white-space:nowrap}
@@ -444,8 +440,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
   .topbar{flex-wrap:wrap;padding:12px 14px}
   .menu-btn{display:inline-flex}
   .title-wrap{flex:1}
-  .date-sort{order:5;max-width:140px}.reward-button b{display:none}
-  .rewards-menu{position:fixed;left:10px;right:10px;top:64px;width:auto}
+  .date-sort{order:5;max-width:140px}
   .scroll{padding:14px 14px 90px}
   .element-menu{position:fixed;left:14px;right:14px;top:70px;width:auto;max-height:calc(100vh - 90px);overflow:auto}
   .ai-mode-button{font-size:0;gap:0}

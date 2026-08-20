@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { deleteKeys } from '@/lib/r2';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,9 +23,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
   return NextResponse.json(rows[0] ?? null);
 }
 
-/** Коллекция удаляется, карточки остаются — просто выпадают во «Всё». */
+/** Удаление борда удаляет и все его карточки, включая файлы в R2. */
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { id } = await params;
-  await db()`delete from collections where id = ${id}`;
+  const sql = db();
+  const items = (await sql`select r2_key, r2_thumb_key from items where collection_id = ${id}`) as unknown as {
+    r2_key: string | null;
+    r2_thumb_key: string | null;
+  }[];
+  await sql`delete from items where collection_id = ${id}`;
+  await sql`delete from collections where id = ${id}`;
+  await deleteKeys(items.flatMap((item) => [item.r2_key, item.r2_thumb_key]).filter(Boolean) as string[]).catch(() => {});
   return NextResponse.json({ ok: true });
 }

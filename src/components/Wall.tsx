@@ -52,7 +52,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [progress, setProgress] = useState<Progress | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [rewardsOpen, setRewardsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
   const [newElement, setNewElement] = useState<NewElement | null>(null);
@@ -399,16 +398,11 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     if (!ids.length) return;
     const boardIds = ids.filter((id) => id.startsWith('board:')).map((id) => id.slice(6));
     const itemIds = ids.filter((id) => !id.startsWith('board:'));
-    const label = [
-      itemIds.length ? `${itemIds.length} ${plural(itemIds.length, 'карточку', 'карточки', 'карточек')}` : '',
-      boardIds.length ? `${boardIds.length} ${plural(boardIds.length, 'борд', 'борда', 'бордов')}` : '',
-    ].filter(Boolean).join(' и ');
-    if (!confirm(`Удалить ${label}?${boardIds.length ? ' Карточки удалённых бордов останутся во «Всём».' : ''}`)) return;
 
+    // Удаление борда каскадно сносит и его карточки — убираем их из списка
+    // тут же, чтобы не остались висеть до следующего запроса.
     const removed = items.filter((item) => itemIds.includes(item.id));
-    setItems((p) => p
-      .map((item) => item.collection_id && boardIds.includes(item.collection_id) ? { ...item, collection_id: null } : item)
-      .filter((item) => !itemIds.includes(item.id)));
+    setItems((p) => p.filter((item) => !itemIds.includes(item.id) && !(item.collection_id && boardIds.includes(item.collection_id))));
     setCollections((p) => p.filter((c) => !boardIds.includes(c.id)));
     if (boardIds.includes(active)) setActive('all');
     setSelected(new Set());
@@ -432,8 +426,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     // переименовывать/переносить руками после объединения.
     const target = boards.reduce((best, b) => (countOf(b.id) > countOf(best.id) ? b : best), boards[0]);
     const sources = boards.filter((b) => b.id !== target.id);
-    if (!confirm(`Объединить ${boards.length} бордов в «${target.name}»?`)) return;
-
     const sourceIds = sources.map((b) => b.id);
     const affected = items.filter((item) => item.collection_id && sourceIds.includes(item.collection_id));
     setItems((p) => p.map((item) => item.collection_id && sourceIds.includes(item.collection_id) ? { ...item, collection_id: target.id } : item));
@@ -694,10 +686,13 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   }
 
   async function deleteProject(project: Project) {
-    if (!confirm(`Удалить проект «${project.name}»? Борды останутся без проекта.`)) return;
+    // Удаление проекта каскадно сносит все его борды и все карточки в них.
+    const boardIds = new Set(collections.filter((c) => c.project_id === project.id).map((c) => c.id));
     setProjects((current) => current.filter((value) => value.id !== project.id));
-    setCollections((current) => current.map((value) => value.project_id === project.id ? { ...value, project_id: null } : value));
+    setCollections((current) => current.filter((value) => value.project_id !== project.id));
+    setItems((current) => current.filter((item) => !item.collection_id || !boardIds.has(item.collection_id)));
     if (activeProject === project.id) setActiveProject('all');
+    if (boardIds.has(active)) setActive('all');
     setProjectModal(null);
     await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
   }
@@ -772,9 +767,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   }
 
   async function deleteCollection(c: Collection) {
-    if (!confirm(`Удалить «${c.name}»? Карточки останутся во «Всём».`)) return;
+    // Удаление борда каскадно сносит все его карточки.
     setCollections((p) => p.filter((x) => x.id !== c.id));
-    setItems((p) => p.map((i) => (i.collection_id === c.id ? { ...i, collection_id: null } : i)));
+    setItems((p) => p.filter((i) => i.collection_id !== c.id));
     if (active === c.id) setActive('all');
     setCollModal(null);
     await fetch(`/api/collections/${c.id}`, { method: 'DELETE' });
@@ -981,25 +976,25 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             {projectCollections.map((c) => <NavRow key={c.id} id={c.id} name={c.name} color={c.color} count={countOf(c.id)} coll={c} />)}
             {!projectCollections.length && <div className="nav-empty">Пока нет бордов</div>}
           </> : <>
-            <NavRow id="all" name="Всё" count={countOf('all')} onAdd={() => setElementMenu(true)} addLabel="Добавить на стену" />
-            <div className="nav-label figma-pages"><span>Мои проекты</span><button aria-label="Новый проект" onClick={() => setProjectModal('new')}><Icon name="plus" /></button></div>
             <DndContext sensors={boardSensors} collisionDetection={closestCenter} onDragStart={(event) => setDraggingBoard(String(event.active.id))} onDragCancel={() => setDraggingBoard(null)} onDragEnd={(event) => void finishBoardDrag(event)}>
-            {projects.map((project) => { const projectBoards = boardsForProject(project.id); return <BoardDropZone key={project.id} id={project.id}>
-              <button className="project-row project-heading" onClick={() => { setActiveProject(project.id); setActive('all'); }}>
-                <Icon name="folder" /><b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
-              </button>
-              <SortableContext items={projectBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}><div className="project-tree-boards">{projectBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</div></SortableContext>
-            </BoardDropZone>; })}
-            {!projects.length && <div className="nav-empty">Пока нет проектов</div>}
+            {!!projects.length && <>
+              <div className="nav-label figma-pages"><span>Мои проекты</span><button aria-label="Новый проект" onClick={() => setProjectModal('new')}><Icon name="plus" /></button></div>
+              {projects.map((project) => { const projectBoards = boardsForProject(project.id); return <BoardDropZone key={project.id} id={project.id}>
+                <button className="project-row project-heading" onClick={() => { setActiveProject(project.id); setActive('all'); }}>
+                  <Icon name="folder" /><b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
+                </button>
+                <SortableContext items={projectBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}><div className="project-tree-boards">{projectBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</div></SortableContext>
+              </BoardDropZone>; })}
+            </>}
             <div className="nav-label figma-pages"><span>Мои борды</span><button aria-label="Новый борд" onClick={() => setCollModal('new')}><Icon name="plus" /></button></div>
-            <BoardDropZone id="unassigned"><SortableContext items={unassignedBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}>{unassignedBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</SortableContext>{!unassignedBoards.length && <div className="nav-empty">Пока нет бордов</div>}</BoardDropZone>
+            <BoardDropZone id="unassigned"><SortableContext items={unassignedBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}>{unassignedBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</SortableContext></BoardDropZone>
             <DragOverlay dropAnimation={{ duration: 160, easing: 'ease-out' }}>{draggingBoard ? <BoardRowVisual board={collections.find((board) => board.id === draggingBoard)!} count={countOf(draggingBoard)} overlay /> : null}</DragOverlay>
             </DndContext>
+            <NavRow id="all" name="Всё" count={countOf('all')} />
             <NavRow id="fav" name="Избранное" count={countOf('fav')} />
             <NavRow id="archive" name="Архив" count={countOf('archive')} />
           </>}
         </div>
-        <div className="side-foot"><button className="logout-btn" onClick={logout}><Icon name="logout" /> Выйти</button></div>
       </aside>
 
       <main className="main">
@@ -1012,19 +1007,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
           <div ref={topSearchRef} className={'top-search' + (searchOpen ? ' open' : '')}>{searchOpen && <input autoFocus value={search} placeholder="Поиск" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />}<button className="icon-control" aria-label="Поиск" title="Поиск" onClick={() => { if (searchOpen && search) setSearch(''); else setSearchOpen((value) => !value); }}><Icon name={searchOpen && search ? 'close' : 'search'} /></button></div>
           {active === 'all' && <button className="icon-control" aria-label="Изменить порядок ленты" title={feedOrder === 'newest' ? 'Сначала новые' : 'Сначала старые'} onClick={() => setFeedOrder((value) => value === 'newest' ? 'oldest' : 'newest')}><Icon name="sort" /></button>}
-          <div className="reward-control">
-            <button className="reward-button icon-control" title={`${progress?.xp || 0} XP`} aria-label="Награды" aria-expanded={rewardsOpen} onClick={() => setRewardsOpen((value) => !value)}><Icon name="award" /></button>
-            {rewardsOpen && <>
-              <button className="menu-shield" aria-label="Закрыть награды" onClick={() => setRewardsOpen(false)} />
-              <div className="rewards-menu">
-                <div className="rewards-head"><div><small>Уровень {progress?.level || 1}</small><b>{progress?.xp || 0} XP</b></div><span>🏆</span></div>
-                <div className="xp-track"><i style={{ width: `${Math.min(100, ((progress?.xp || 0) / (progress?.nextLevelXp || 100)) * 100)}%` }} /></div>
-                <div className="achievement-list">{progress?.achievements.map((achievement) => <div key={achievement.key} className={'achievement' + (achievement.unlocked ? ' unlocked' : '')}>
-                  <span>{achievement.icon}</span><div><b>{achievement.title}</b><small>{achievement.description}</small><em>{achievement.unlocked ? `Получено · +${achievement.xp} XP` : `${achievement.progress}/${achievement.target}`}</em></div>
-                </div>)}</div>
-              </div>
-            </>}
-          </div>
           <button className={'icon-control move-toggle' + (moveMode ? ' on' : '')} title={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-label={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-pressed={moveMode}
             onClick={() => setMoveMode((value) => !value)}><Icon name={moveMode ? 'check' : 'move'} /></button>
           <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'}
@@ -1052,12 +1034,10 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               {account?.avatar_url ? <img src={account.avatar_url} alt="" /> : <span>{(account?.nickname || 'E').slice(0, 1).toUpperCase()}</span>}
             </button>
             <div className="account-hover-card">
-              <div className="account-entry">
-                {account?.avatar_url ? <img src={account.avatar_url} alt="" /> : <span>{(account?.nickname || 'E').slice(0, 1).toUpperCase()}</span>}
-                <div><b>{account?.nickname || 'Аккаунт'}</b><small>{account?.email || 'Настройки профиля'}</small></div>
+              <div className="account-hover-card-inner">
+                <button className="account-hover-action" onClick={() => setAccountOpen(true)}><Icon name="settings" /> Настройки аккаунта</button>
+                <button className="account-hover-action" onClick={logout}><Icon name="logout" /> Выйти</button>
               </div>
-              <button className="account-hover-action" onClick={() => setAccountOpen(true)}><Icon name="settings" /> Настройки профиля</button>
-              <button className="account-hover-action" onClick={logout}><Icon name="logout" /> Выйти</button>
             </div>
           </div>
         </header>
@@ -1332,7 +1312,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               <button aria-label="Редактировать" title="Редактировать" onClick={() => { setEditing(it); setLightbox(null); }}><Icon name="edit" /></button>
               <button className={movingCard ? 'on' : ''} aria-label="Переместить" title="Переместить" onClick={() => setMovingCard((value) => !value)}><Icon name="move" /></button>
               <button aria-label="Архивировать" title="Архивировать" onClick={() => { setLightbox(null); void archiveItem(it); }}><Icon name="archive" /></button>
-              <button className="danger" aria-label="Удалить" title="Удалить" onClick={() => { if (confirm('Удалить карточку навсегда?')) { setLightbox(null); void remove(it); } }}><Icon name="trash" /></button>
+              <button className="danger" aria-label="Удалить" title="Удалить" onClick={() => { setLightbox(null); void remove(it); }}><Icon name="trash" /></button>
             </div>
             {movingCard && <div className="detail-move"><select autoFocus value={it.collection_id || ''} onChange={(event) => { void patch(it.id, { collectionId: event.target.value || null }); setMovingCard(false); }}><option value="">Без борда</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></div>}
             <h2>{it.title || 'Без названия'}</h2>
