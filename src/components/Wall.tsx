@@ -73,6 +73,10 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const selectionIdsRef = useRef<Set<string>>(new Set());
   const gridRef = useRef<HTMLDivElement>(null);
   const muuriRef = useRef<Muuri | null>(null);
+  // Concurrent AI placements for a batch upload all resolve around the same
+  // time; without this, each independently sees no matching board yet and
+  // creates its own, so a 15-photo upload ends up with 15 identical boards.
+  const collectionCreationRef = useRef<Map<string, Promise<Collection>>>(new Map());
 
   useEffect(() => {
     if (locationReady) return;
@@ -378,10 +382,17 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   async function deleteSelected() {
     const ids = [...selected];
     if (!ids.length || !confirm(`Удалить выбранные карточки (${ids.length})?`)) return;
+    const removed = items.filter((item) => selected.has(item.id));
     setItems((p) => p.filter((item) => !selected.has(item.id)));
     setSelected(new Set());
-    await Promise.all(ids.map((id) => fetch(`/api/items/${id}`, { method: 'DELETE' })));
-    say('Карточки удалены');
+    const results = await Promise.all(ids.map((id) => fetch(`/api/items/${id}`, { method: 'DELETE' }).then((res) => res.ok).catch(() => false)));
+    const failedIds = new Set(ids.filter((_, index) => !results[index]));
+    if (failedIds.size) {
+      setItems((p) => [...removed.filter((item) => failedIds.has(item.id)), ...p]);
+      say(`Удалено ${ids.length - failedIds.size} из ${ids.length} — часть не прошла, попробуй ещё раз`);
+    } else {
+      say('Карточки удалены');
+    }
   }
 
   async function placeAutomatically(item: Item, result: AiSuggestion) {
@@ -396,16 +407,29 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
     const existingOption = result.collections.find((name) => collections.some((c) => c.name.toLocaleLowerCase() === name.toLocaleLowerCase()));
     const collectionName = existingOption || result.collections[0];
-    let collection = collections.find((c) => c.name.toLocaleLowerCase() === collectionName.toLocaleLowerCase());
+    const key = collectionName.toLocaleLowerCase();
+    let collection = collections.find((c) => c.name.toLocaleLowerCase() === key);
     if (!collection) {
-      const colors = ['#C6F04A', '#FFB86B', '#87CEEB', '#D6B4FC', '#FF8F8F'];
-      const res = await fetch('/api/collections', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: collectionName, color: colors[collections.length % colors.length] }),
-      });
-      if (res.ok) {
-        collection = await res.json();
+      // A batch upload fires AI placement for every photo at once; several can
+      // land here for the same board name before any of them has finished
+      // creating it. Share one in-flight request instead of racing duplicates.
+      let creation = collectionCreationRef.current.get(key);
+      if (!creation) {
+        const colors = ['#C6F04A', '#FFB86B', '#87CEEB', '#D6B4FC', '#FF8F8F'];
+        creation = fetch('/api/collections', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: collectionName, color: colors[collections.length % colors.length] }),
+        }).then((res) => {
+          if (!res.ok) throw new Error('collection create failed');
+          return res.json() as Promise<Collection>;
+        }).finally(() => collectionCreationRef.current.delete(key));
+        collectionCreationRef.current.set(key, creation);
+      }
+      try {
+        collection = await creation;
         setCollections((p) => p.some((c) => c.id === collection!.id) ? p : [...p, collection!]);
+      } catch {
+        collection = undefined;
       }
     }
     await patch(item.id, { title: result.title, note: result.description, tags: result.tags, collectionId: collection?.id || null });
@@ -883,6 +907,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   return (
     <div className={'app' + (moveMode ? ' move-mode' : '') + (lightbox ? ' lightbox-open' : '')}>
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
+        <button className="brand brand-home" aria-label="На главную" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
         <div className="nav">
           {activeProject !== 'all' ? <>
             <div className="project-workspace">
@@ -916,7 +941,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
       <main className="main">
         <header className="topbar">
-          <button className="brand brand-home" aria-label="На главную" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
           <button className="btn ghost menu-btn" aria-label="Открыть коллекции" onClick={() => setMenuOpen((v) => !v)}>☰</button>
           <div className="title-wrap">
             <h1>{title}</h1>
