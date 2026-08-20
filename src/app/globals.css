@@ -366,7 +366,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .pin-detail-info{padding:28px;display:flex;flex-direction:column;align-items:stretch;background:#fff}
 .pin-detail-info h2{font-size:25px;margin:28px 0 8px;letter-spacing:-.035em}.pin-detail-info>p{color:var(--muted);line-height:1.5;margin:0 0 28px}
 .pin-detail-actions{display:flex;align-items:center;gap:8px}.pin-detail-actions button{width:36px;height:36px;border-radius:50%;background:var(--hover);font-size:23px}.pin-detail-actions span{font-size:11px;color:var(--muted)}
-.source-row{display:flex;gap:7px}.source-row .btn{padding:0;width:40px;justify-content:center}.remove-bg{padding:12px 15px;border-radius:999px;background:var(--ink);color:#fff;font-weight:650;margin-top:4px}.remove-bg:disabled{opacity:.55}
+.source-row{display:flex;gap:7px}.source-row .btn{padding:0;width:40px;justify-content:center}
 .detail-edit{margin-top:auto;padding-top:28px;text-align:left;text-decoration:underline;text-underline-offset:4px;color:var(--muted)}
 .lb-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:20px}
 .lb-tags button{padding:6px 10px;border-radius:999px;background:var(--hover);color:var(--ink);font-size:10px}

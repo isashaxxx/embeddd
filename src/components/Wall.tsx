@@ -1013,19 +1013,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     if (!it) return null;
     const go = (d: number) => setLightbox(list[(idx + d + list.length) % list.length].id);
     const [sourceUrl, setSourceUrl] = useState(it.url || '');
-    const [removingBackground, setRemovingBackground] = useState(false);
-
-    async function removeBackground() {
-      setRemovingBackground(true);
-      try {
-        const response = await fetch(`/api/items/${it.id}/remove-background`, { method: 'POST' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Не удалось удалить фон');
-        setItems((current) => current.map((item) => item.id === it.id ? data : item));
-        say('Фон удалён');
-      } catch (error) { say(error instanceof Error ? error.message : 'Не удалось удалить фон'); }
-      finally { setRemovingBackground(false); }
-    }
 
     return (
       <div className="lb on">
@@ -1036,7 +1023,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <div className="pin-detail-actions"><button aria-label="Предыдущая" onClick={() => go(-1)}>‹</button><span>{idx + 1}/{list.length}</span><button aria-label="Следующая" onClick={() => go(1)}>›</button></div>
             <h2>{it.title || 'Без названия'}</h2>{it.note && <p>{it.note}</p>}
             <div className="field"><label>Ссылка-источник</label><div className="source-row"><input value={sourceUrl} placeholder="https://..." onChange={(event) => setSourceUrl(event.target.value)} onBlur={() => patch(it.id, { url: sourceUrl.trim() || null })} /><button className="btn ghost" disabled={!sourceUrl.trim()} onClick={() => window.open(sourceUrl, '_blank', 'noopener,noreferrer')}>↗</button></div></div>
-            {it.kind === 'image' && <button className="remove-bg" disabled={removingBackground} onClick={removeBackground}>{removingBackground ? 'Удаляю фон…' : '✦ Удалить фон'}</button>}
             {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
             event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
           }}>#{tag}</button>)}</div>}
