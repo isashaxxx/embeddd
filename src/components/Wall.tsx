@@ -1131,7 +1131,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     return (
       <div className="lb on" onClick={(event) => { if (event.target === event.currentTarget) setLightbox(null); }}>
         <button className="lb-back" aria-label="Назад" onClick={() => setLightbox(null)}><Icon name="back" /></button>
-        <div className="pin-detail">
+        <div className="lb-layout"><div className="pin-detail">
           <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} poster={it.thumb && it.thumb !== it.src ? it.thumb : undefined} controls autoPlay playsInline preload="metadata" /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}</div>
           <div className="pin-detail-info">
             <h2>{it.title || 'Без названия'}</h2>
@@ -1140,10 +1140,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
           }}>#{tag}</button>)}</div>}
             {(project || board) && <div className="detail-location">{project && <button onClick={() => { setLightbox(null); setActiveProject(project.id); setActive('all'); }}><small>Проект</small><b>{project.name}</b></button>}{board && <button onClick={() => { setLightbox(null); setActiveProject(board.project_id || 'all'); setActive(board.id); }}><small>Борд</small><b>{board.name}</b></button>}</div>}
-            {!!recommendations.length && <div className="detail-recommendations"><label>Похожие</label><div>{recommendations.map((item) => <button key={item.id} onClick={() => setLightbox(item.id)}>{item.kind === 'video' ? <video muted playsInline preload="metadata" src={item.src || ''} /> : <img src={item.thumb || item.src || ''} alt="" />}</button>)}</div></div>}
             <button className="detail-edit" onClick={() => { setEditing(it); setLightbox(null); }}>Редактировать карточку</button>
           </div>
-        </div>
+        </div>{!!recommendations.length && <aside className="detail-related">{recommendations.map((item) => <button key={item.id} onClick={() => setLightbox(item.id)}>{item.kind === 'video' ? <video muted playsInline preload="metadata" poster={item.thumb && item.thumb !== item.src ? item.thumb : undefined} src={item.src || ''} /> : <img src={item.thumb || item.src || ''} alt="" />}<b>{item.title || 'Без названия'}</b></button>)}</aside>}</div>
       </div>
     );
   }
@@ -1155,6 +1154,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 function AutoVideo({ src, className, poster }: { src: string; className: string; poster?: string }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [near, setNear] = useState(false);
+  const [duration, setDuration] = useState(0);
   useEffect(() => {
     const video = ref.current;
     if (!video) return;
@@ -1165,9 +1165,9 @@ function AutoVideo({ src, className, poster }: { src: string; className: string;
     observer.observe(video);
     return () => { observer.disconnect(); video.pause(); };
   }, []);
-  return <video ref={ref} className={className} draggable={false} muted loop playsInline poster={poster} preload={near ? 'metadata' : 'none'} src={near ? src : undefined}
-    onLoadedMetadata={(event) => { if (!poster && event.currentTarget.duration > .05) event.currentTarget.currentTime = .05; }}
-    onMouseEnter={(event) => { void event.currentTarget.play().catch(() => {}); }} onMouseLeave={(event) => event.currentTarget.pause()} />;
+  return <><video ref={ref} className={className} draggable={false} muted loop playsInline poster={poster} preload={near ? 'metadata' : 'none'} src={near ? src : undefined}
+    onLoadedMetadata={(event) => { setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0); if (!poster && event.currentTarget.duration > .05) event.currentTarget.currentTime = .05; }}
+    onMouseEnter={(event) => { void event.currentTarget.play().catch(() => {}); }} onMouseLeave={(event) => event.currentTarget.pause()} />{duration > 0 && <span className="video-duration">{formatDuration(duration)}</span>}</>;
 }
 
 function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' }) {
@@ -1193,6 +1193,14 @@ function plural(n: number, a: string, b: string, c: string) {
   if (m >= 11 && m <= 14) return c;
   const k = n % 10;
   return k === 1 ? a : k >= 2 && k <= 4 ? b : c;
+}
+
+function formatDuration(seconds: number) {
+  const value = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const rest = value % 60;
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}` : `${minutes}:${String(rest).padStart(2, '0')}`;
 }
 
 function safeHost(url: string) {
