@@ -1207,6 +1207,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     if (!it) return null;
     const [description, setDescription] = useState(it.note || '');
     const [editingDescription, setEditingDescription] = useState(false);
+    const [movingCard, setMovingCard] = useState(false);
     const board = collections.find((value) => value.id === it.collection_id);
     const project = projects.find((value) => value.id === board?.project_id);
     const recommendations = items.filter((value) => value.id !== it.id && !value.archived_at && (value.kind === 'image' || value.kind === 'video') && (value.collection_id === it.collection_id || value.tags?.some((tag) => it.tags?.includes(tag)))).slice(0, 6);
@@ -1215,15 +1216,21 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       <div className="lb on" onClick={(event) => { if (event.target === event.currentTarget) setLightbox(null); }}>
         <button className="lb-back" aria-label="Назад" onClick={() => setLightbox(null)}><Icon name="back" /></button>
         <div className="lb-layout"><div className="pin-detail">
-          <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} poster={it.thumb && it.thumb !== it.src ? it.thumb : undefined} controls autoPlay playsInline preload="metadata" /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}</div>
+          <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} poster={it.thumb && it.thumb !== it.src ? it.thumb : undefined} controls autoPlay playsInline preload="metadata" /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}<button className={'detail-favorite' + (it.fav ? ' on' : '')} aria-label={it.fav ? 'Убрать из избранного' : 'Добавить в избранное'} title="Избранное" onClick={() => void patch(it.id, { fav: !it.fav })}><Icon name={it.fav ? 'unfavorite' : 'favorite'} /></button></div>
           <div className="pin-detail-info">
+            <div className="pin-detail-toolbar">
+              <button aria-label="Редактировать" title="Редактировать" onClick={() => { setEditing(it); setLightbox(null); }}><Icon name="edit" /></button>
+              <button className={movingCard ? 'on' : ''} aria-label="Переместить" title="Переместить" onClick={() => setMovingCard((value) => !value)}><Icon name="move" /></button>
+              <button aria-label="Архивировать" title="Архивировать" onClick={() => { setLightbox(null); void archiveItem(it); }}><Icon name="archive" /></button>
+              <button className="danger" aria-label="Удалить" title="Удалить" onClick={() => { if (confirm('Удалить карточку навсегда?')) { setLightbox(null); void remove(it); } }}><Icon name="trash" /></button>
+            </div>
+            {movingCard && <div className="detail-move"><select autoFocus value={it.collection_id || ''} onChange={(event) => { void patch(it.id, { collectionId: event.target.value || null }); setMovingCard(false); }}><option value="">Без борда</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></div>}
             <h2>{it.title || 'Без названия'}</h2>
-            <div className="description-field"><label>Описание</label>{editingDescription ? <textarea autoFocus value={description} placeholder="Добавить описание…" onChange={(event) => setDescription(event.target.value)} onBlur={() => { void patch(it.id, { note: description }); setEditingDescription(false); }} /> : <button className={'description-read' + (!description ? ' empty' : '')} onClick={() => setEditingDescription(true)}>{description || 'Добавить описание'}</button>}</div>
+            <div className="description-field">{editingDescription ? <textarea autoFocus value={description} placeholder="Добавить описание…" onChange={(event) => setDescription(event.target.value)} onBlur={() => { void patch(it.id, { note: description }); setEditingDescription(false); }} /> : <button className={'description-read' + (!description ? ' empty' : '')} onClick={() => setEditingDescription(true)}>{description || 'Добавить описание'}</button>}</div>
             {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
             event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
           }}>#{tag}</button>)}</div>}
             {(project || board) && <div className="detail-location">{project && <button onClick={() => { setLightbox(null); setActiveProject(project.id); setActive('all'); }}><small>Проект</small><b>{project.name}</b></button>}{board && <button onClick={() => { setLightbox(null); setActiveProject(board.project_id || 'all'); setActive(board.id); }}><small>Борд</small><b>{board.name}</b></button>}</div>}
-            <button className="detail-edit" onClick={() => { setEditing(it); setLightbox(null); }}>Редактировать карточку</button>
           </div>
         </div>{!!recommendations.length && <aside className="detail-related">{recommendations.map((item) => <button key={item.id} onClick={() => setLightbox(item.id)}>{item.kind === 'video' ? <video muted playsInline preload="metadata" poster={item.thumb && item.thumb !== item.src ? item.thumb : undefined} src={item.src || ''} /> : <img src={item.thumb || item.src || ''} alt="" />}<b>{item.title || 'Без названия'}</b></button>)}</aside>}</div>
       </div>
@@ -1272,7 +1279,7 @@ function AutoVideo({ src, className, poster }: { src: string; className: string;
     onMouseEnter={(event) => { void event.currentTarget.play().catch(() => {}); }} onMouseLeave={(event) => event.currentTarget.pause()} />{duration > 0 && <span className="video-duration">{formatDuration(duration)}</span>}</>;
 }
 
-function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' }) {
+function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' }) {
   const paths: Record<typeof name, React.ReactNode> = {
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     close: <><path d="M6 6l12 12M18 6 6 18"/></>,
@@ -1286,6 +1293,9 @@ function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' |
     archive: <><path d="M4 7h16v13H4zM3 4h18v3H3zM9 11h6"/></>,
     trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></>,
     restore: <><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8"/><path d="M4 3v5h5"/></>,
+    edit: <><path d="M4 20h4l11-11-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></>,
+    favorite: <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>,
+    unfavorite: <path fill="currentColor" d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
