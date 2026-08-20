@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://embeddd.vercel.app",
+          "http://localhost:3000"
+        ],
+        "methods": ["GET", "PUT"],
+        "headers": ["content-type"]
+      },
+      "exposeHeaders": ["etag"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}
