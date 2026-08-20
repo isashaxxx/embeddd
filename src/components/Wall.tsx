@@ -1,7 +1,6 @@
 'use client';
 
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import type Muuri from 'muuri';
 import type { Account, Collection, Item, Progress, Project } from '@/lib/types';
 import { shrink, videoPreview, videoSize } from '@/lib/resize';
@@ -25,7 +24,6 @@ const pinCrop = (item: Item) => {
 };
 
 export default function Wall({ initialProjects, initialCollections, initialItems, initialActive = 'all', initialProject = 'all', initialPost }: Props) {
-  const router = useRouter();
   const [projects, setProjects] = useState(initialProjects);
   const [collections, setCollections] = useState(initialCollections);
   const [items, setItems] = useState(initialItems);
@@ -681,11 +679,11 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   return (
     <div className={'app' + (moveMode ? ' move-mode' : '')}>
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
-        <button className="brand brand-home" aria-label="На главную" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); router.push('/'); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
+        <button className="brand brand-home" aria-label="На главную" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
         <div className="nav">
           {activeProject !== 'all' ? <>
             <div className="project-workspace">
-              <button aria-label="Все проекты" onClick={() => { setActiveProject('all'); setActive('all'); router.push('/'); }}><Icon name="back" /></button>
+              <button aria-label="Все проекты" onClick={() => { setActiveProject('all'); setActive('all'); }}><Icon name="back" /></button>
               <div><b>{projects.find((project) => project.id === activeProject)?.name}</b><small>{projectCollections.length} {plural(projectCollections.length, 'борд', 'борда', 'бордов')}</small></div>
               <button aria-label="Настройки проекта" onClick={() => { const project = projects.find((value) => value.id === activeProject); if (project) setProjectModal(project); }}><Icon name="settings" /></button>
             </div>
@@ -701,7 +699,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               onDragOver={(event) => { if (!event.dataTransfer.types.includes('application/x-embeddd-board')) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setProjectDrop(project.id); }}
               onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setProjectDrop(null); }}
               onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const boardId = event.dataTransfer.getData('application/x-embeddd-board') || event.dataTransfer.getData('text/plain') || draggingBoard; if (boardId) void moveBoardToProject(boardId, project.id); setDraggingBoard(null); setProjectDrop(null); }}>
-              <button className="project-row project-heading" onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/projects/${project.slug}`); }}>
+              <button className="project-row project-heading" onClick={() => { setActiveProject(project.id); setActive('all'); }}>
                 <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
               </button>
               <div className="project-tree-boards">{collections.filter((board) => board.project_id === project.id).map((board) => <NavRow key={board.id} id={board.id} name={board.name} color={board.color} count={countOf(board.id)} coll={board} compact />)}</div>
@@ -771,7 +769,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
               return <div key={`board-${collection.id}`} className="grid-item collection-board-item" style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
                 <div className="grid-item-content collection-board">
-                  <button className="board-open" onClick={() => { setActive(collection.id); router.push(`/boards/${collection.slug}`); }} aria-label={`Открыть ${collection.name}`} />
+                  <button className="board-open" onClick={() => setActive(collection.id)} aria-label={`Открыть ${collection.name}`} />
                   <span className="board-covers">
                     {covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)}
                     {!covers.length && <span className="board-empty" style={{ background: collection.color }} />}
@@ -859,7 +857,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('.coll-edit')) return;
           setActive(id); setMenuOpen(false);
-          if (coll) router.push(`/boards/${coll.slug}`); else router.push('/');
         }}
       >
         <span className="coll-dot" style={color ? { background: color } : undefined} />
@@ -887,7 +884,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; });
             return;
           }
-          if (isMedia) { setLightbox(item.id); window.history.pushState({ embedddPost: item.id }, '', `/posts/${item.slug}`); }
+          if (isMedia) setLightbox(item.id);
           else if (item.url) window.open(item.url, '_blank', 'noopener');
         }}
       >
@@ -1132,8 +1129,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const recommendations = items.filter((value) => value.id !== it.id && !value.archived_at && (value.kind === 'image' || value.kind === 'video') && (value.collection_id === it.collection_id || value.tags?.some((tag) => it.tags?.includes(tag)))).slice(0, 6);
 
     return (
-      <div className="lb on" onClick={(event) => { if (event.target === event.currentTarget) { setLightbox(null); router.back(); } }}>
-        <button className="lb-back" aria-label="Назад" onClick={() => { setLightbox(null); router.back(); }}><Icon name="back" /></button>
+      <div className="lb on" onClick={(event) => { if (event.target === event.currentTarget) setLightbox(null); }}>
+        <button className="lb-back" aria-label="Назад" onClick={() => setLightbox(null)}><Icon name="back" /></button>
         <div className="pin-detail">
           <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} poster={it.thumb && it.thumb !== it.src ? it.thumb : undefined} controls autoPlay playsInline preload="metadata" /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}</div>
           <div className="pin-detail-info">
@@ -1142,8 +1139,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
             event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
           }}>#{tag}</button>)}</div>}
-            {(project || board) && <div className="detail-location">{project && <button onClick={() => { setLightbox(null); router.push(`/projects/${project.slug}`); }}><small>Проект</small><b>{project.name}</b></button>}{board && <button onClick={() => { setLightbox(null); router.push(`/boards/${board.slug}`); }}><small>Борд</small><b>{board.name}</b></button>}</div>}
-            {!!recommendations.length && <div className="detail-recommendations"><label>Похожие</label><div>{recommendations.map((item) => <button key={item.id} onClick={() => { setLightbox(item.id); window.history.replaceState({ embedddPost: item.id }, '', `/posts/${item.slug}`); }}>{item.kind === 'video' ? <video muted playsInline preload="metadata" src={item.src || ''} /> : <img src={item.thumb || item.src || ''} alt="" />}</button>)}</div></div>}
+            {(project || board) && <div className="detail-location">{project && <button onClick={() => { setLightbox(null); setActiveProject(project.id); setActive('all'); }}><small>Проект</small><b>{project.name}</b></button>}{board && <button onClick={() => { setLightbox(null); setActiveProject(board.project_id || 'all'); setActive(board.id); }}><small>Борд</small><b>{board.name}</b></button>}</div>}
+            {!!recommendations.length && <div className="detail-recommendations"><label>Похожие</label><div>{recommendations.map((item) => <button key={item.id} onClick={() => setLightbox(item.id)}>{item.kind === 'video' ? <video muted playsInline preload="metadata" src={item.src || ''} /> : <img src={item.thumb || item.src || ''} alt="" />}</button>)}</div></div>}
             <button className="detail-edit" onClick={() => { setEditing(it); setLightbox(null); }}>Редактировать карточку</button>
           </div>
         </div>
