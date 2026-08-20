@@ -113,13 +113,13 @@ button{cursor:pointer;border:none;background:none;padding:0}
 
 /* ---------- grid ---------- */
 .scroll{flex:1;overflow-y:auto;padding:22px 24px 120px;scroll-behavior:smooth}
-.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:1px;gap:9px 14px;grid-auto-flow:dense;align-items:start}
+.grid{display:block;position:relative;width:100%;min-height:1px}
 .card{
-  margin:0;background:var(--panel);align-self:start;
+  position:absolute;margin:0;background:var(--panel);
   border-radius:var(--r);border:1px solid var(--line-soft);
   overflow:hidden;position:relative;cursor:zoom-in;
   box-shadow:var(--shadow);
-  transition:box-shadow .18s, transform .18s;
+  transition:box-shadow .18s, transform .18s, left .24s cubic-bezier(.2,.8,.2,1), top .24s cubic-bezier(.2,.8,.2,1), width .24s cubic-bezier(.2,.8,.2,1);
 }
 .card:hover{box-shadow:var(--shadow-hi);transform:translateY(-2px)}
 .card[draggable=true]{cursor:grab}
@@ -318,20 +318,12 @@ button{cursor:pointer;border:none;background:none;padding:0}
   .sidebar{position:fixed;z-index:50;left:0;top:0;bottom:0;width:250px;flex-basis:250px;
     background:var(--bg);transform:translateX(-100%);transition:transform .25s;box-shadow:var(--shadow-hi)}
   .sidebar.open{transform:none}
-  .grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:7px 10px}
-  .card.size-l,.card.size-xl{grid-column:span 6!important}
   .topbar{flex-wrap:wrap;padding:12px 14px}
   .menu-btn{display:inline-flex}
   .title-wrap{flex:1}
   .scroll{padding:14px 14px 90px}
   .element-menu{position:fixed;left:14px;right:14px;top:70px;width:auto;max-height:calc(100vh - 90px);overflow:auto}
   .selection-bar{left:50%;max-width:calc(100vw - 20px);overflow-x:auto}
-}
-@media (max-width:520px){
-  .grid{grid-template-columns:repeat(4,minmax(0,1fr))}
-  .card.size-m,.card.size-l,.card.size-xl{grid-column:span 4!important}
-  .card.size-s{grid-column:span 3!important}
-  .card.size-xs{grid-column:span 2!important}
 }
 @media (hover:none){
   .tools,.star,.grip{opacity:1}

@@ -35,6 +35,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const dragDepth = useRef(0);
   const selectionBoxRef = useRef<HTMLDivElement>(null);
   const selectionIdsRef = useRef<Set<string>>(new Set());
+  const gridRef = useRef<HTMLDivElement>(null);
 
   const say = useCallback((msg: string, undo?: () => void) => {
     setToast({ msg, undo });
@@ -51,6 +52,45 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     id === 'all' ? items.length : id === 'fav' ? items.filter((i) => i.fav).length : items.filter((i) => i.collection_id === id).length;
 
   const targetCollection = () => (active === 'all' || active === 'fav' ? null : active);
+
+  // Variable-width masonry. Every card is placed in the lowest contiguous
+  // run of columns that can fit its XS-XL span, so later cards fill holes.
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    let frame = 0;
+    const layout = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const columns = window.innerWidth <= 520 ? 4 : window.innerWidth <= 820 ? 6 : 12;
+        const gap = window.innerWidth <= 820 ? 10 : 14;
+        const unit = (grid.clientWidth - gap * (columns - 1)) / columns;
+        const heights = Array(columns).fill(0) as number[];
+        const cards = [...grid.querySelectorAll<HTMLElement>('[data-card-id]')];
+
+        for (const card of cards) {
+          const span = Math.min(columns, Math.max(1, Number(card.dataset.span) || 4));
+          let bestColumn = 0;
+          let bestY = Number.POSITIVE_INFINITY;
+          for (let column = 0; column <= columns - span; column++) {
+            const y = Math.max(...heights.slice(column, column + span));
+            if (y < bestY) { bestY = y; bestColumn = column; }
+          }
+          card.style.width = unit * span + gap * (span - 1) + 'px';
+          card.style.left = bestColumn * (unit + gap) + 'px';
+          card.style.top = bestY + 'px';
+          const bottom = bestY + card.offsetHeight + gap;
+          for (let column = bestColumn; column < bestColumn + span; column++) heights[column] = bottom;
+        }
+        grid.style.height = Math.max(0, ...heights) + 'px';
+      });
+    };
+    const observer = new ResizeObserver(layout);
+    if (grid.parentElement) observer.observe(grid.parentElement);
+    grid.querySelectorAll<HTMLElement>('[data-card-id]').forEach((card) => observer.observe(card));
+    layout();
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+  });
 
   async function addLink(url: string) {
     const tempId = 'temp-' + Math.random().toString(36).slice(2);
@@ -435,7 +475,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         </header>
 
         <div className="scroll" onPointerDown={startSelection}>
-          <div className="grid">
+          <div ref={gridRef} className="grid">
             {visible.map((it) => (
               <Card key={it.id} item={it} />
             ))}
@@ -520,29 +560,17 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const [playing, setPlaying] = useState(false);
     const [edge, setEdge] = useState<'' | 'before' | 'after'>('');
     const boxRef = useRef<HTMLDivElement>(null);
-    const cardRef = useRef<HTMLDivElement>(null);
-    const [rowSpan, setRowSpan] = useState(20);
 
     const isMedia = item.kind === 'image' || item.kind === 'video';
     const size = item.display_size || 'M';
     const widthSpan: Record<CardSize, number> = { XS: 2, S: 3, M: 4, L: 6, XL: 8 };
 
-    useEffect(() => {
-      const node = cardRef.current;
-      if (!node) return;
-      const measure = () => setRowSpan(Math.max(4, Math.ceil((node.getBoundingClientRect().height + 10) / 10)));
-      const observer = new ResizeObserver(measure);
-      observer.observe(node); measure();
-      return () => observer.disconnect();
-    }, []);
-
     return (
       <div
-        ref={cardRef}
         data-card-id={item.id}
         data-size={size}
+        data-span={widthSpan[size]}
         className={'card size-' + size.toLowerCase() + (selected.has(item.id) ? ' selected' : '') + (edge ? ` insert-${edge}` : '')}
-        style={{ gridColumn: `span ${widthSpan[size]}`, gridRowEnd: `span ${rowSpan}` }}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move';
