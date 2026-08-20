@@ -16,11 +16,7 @@ type AiMode = 'auto' | 'ask' | 'off';
 const BLOCK_KINDS = new Set(['text', 'heading', 'callout', 'html', 'divider']);
 const isBlock = (item: Item) => BLOCK_KINDS.has(item.kind);
 const elementSize = (size: Item['display_size']): ElementSize => size === 'M' ? 'M' : size === 'L' || size === 'XL' ? 'L' : 'S';
-const pinCrop = (item: Item) => {
-  const fallback = [...item.id].reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const slot = Math.abs(Number.isFinite(item.position) ? Math.round(item.position) : fallback) % 3;
-  return (['compact', 'portrait', 'tall'] as const)[slot];
-};
+const pinCrop = (index: number) => (['compact', 'portrait', 'tall'] as const)[index % 3];
 
 export default function Wall({ initialCollections, initialItems }: Props) {
   const [collections, setCollections] = useState(initialCollections);
@@ -546,9 +542,9 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
         <div className="scroll" onPointerDown={startSelection}>
           <div ref={gridRef} className="grid">
-            {visible.map((it) => (
+            {visible.map((it, index) => (
               <div key={it.id} className={`grid-item ${isBlock(it) ? `element-item element-size-${elementSize(it.display_size).toLowerCase()}` : 'pin-item'}`} data-card-id={it.id}>
-                <div className="grid-item-content"><Card item={it} /></div>
+                <div className="grid-item-content"><Card item={it} index={index} /></div>
               </div>
             ))}
           </div>
@@ -624,13 +620,13 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     );
   }
 
-  function Card({ item }: { item: Item }) {
+  function Card({ item, index }: { item: Item; index: number }) {
     const [playing, setPlaying] = useState(false);
     const boxRef = useRef<HTMLDivElement>(null);
 
     const isMedia = item.kind === 'image' || item.kind === 'video';
     const size = elementSize(item.display_size);
-    const crop = pinCrop(item);
+    const crop = pinCrop(index);
     return (
       <div
         className={`card ${isBlock(item) ? 'block-card' : 'pin-card'}${selected.has(item.id) ? ' selected' : ''}`}
