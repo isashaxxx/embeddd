@@ -1256,7 +1256,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           {projectRootView && currentProject && (
             <div className="project-hero">
               <div className="project-hero-info">
-                <div className="project-hero-avatar" style={{ background: currentProject.color }}>{currentProject.name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('')}</div>
                 <h2>{currentProject.name}</h2>
                 <div className="project-hero-meta">
                   <span>С {new Date(currentProject.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
