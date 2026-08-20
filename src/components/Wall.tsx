@@ -916,7 +916,14 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     );
   }
 
-  function Card({ item }: { item: Item }) {
+  const cardRuntime = useRef({ selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, moveMode });
+  cardRuntime.current = { selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, moveMode };
+
+  // Keep the component type stable across Wall renders. Defining a regular
+  // nested component here caused React to remount every video whenever account,
+  // progress or grid state changed, making posters flash and media reload.
+  const Card = useRef(function StableCard({ item }: { item: Item }) {
+    const runtime = cardRuntime.current;
     const [playing, setPlaying] = useState(false);
     const boxRef = useRef<HTMLDivElement>(null);
 
@@ -925,15 +932,15 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const crop = pinCrop(item);
     return (
       <div
-        className={`card ${isBlock(item) ? 'block-card' : 'pin-card'}${selected.has(item.id) ? ' selected' : ''}`}
+        className={`card ${isBlock(item) ? 'block-card' : 'pin-card'}${runtime.selected.has(item.id) ? ' selected' : ''}`}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('button, iframe, .resize')) return;
-          if (e.metaKey || e.ctrlKey || e.shiftKey || selected.size) {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || runtime.selected.size) {
             e.stopPropagation();
-            setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; });
+            runtime.setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; });
             return;
           }
-          if (isMedia) setLightbox(item.id);
+          if (isMedia) runtime.setLightbox(item.id);
           else if (item.url) window.open(item.url, '_blank', 'noopener');
         }}
       >
@@ -997,21 +1004,21 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         )}
 
         <button className={'star' + (item.fav ? ' on' : '')} aria-label={item.fav ? 'Убрать из избранного' : 'Добавить в избранное'}
-          onClick={(e) => { e.stopPropagation(); patch(item.id, { fav: !item.fav }); }}>
+          onClick={(e) => { e.stopPropagation(); runtime.patch(item.id, { fav: !item.fav }); }}>
           {item.fav ? '★' : '☆'}
         </button>
 
         <div className="tools">
-          {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); analyzeImage(item, true); }}>{aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
-          {isBlock(item) && <select className="size-select" aria-label="Размер элемента" title="Размер элемента" value={size} onClick={(e) => e.stopPropagation()} onChange={(e) => patch(item.id, { displaySize: e.target.value as ElementSize })}>
+          {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={runtime.aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); runtime.analyzeImage(item, true); }}>{runtime.aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
+          {isBlock(item) && <select className="size-select" aria-label="Размер элемента" title="Размер элемента" value={size} onClick={(e) => e.stopPropagation()} onChange={(e) => runtime.patch(item.id, { displaySize: e.target.value as ElementSize })}>
             <option value="S">S</option><option value="M">M</option><option value="L">L</option>
           </select>}
           {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
-          <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); setEditing(item); }}>✎</button>
-          {item.archived_at ? <button aria-label="Восстановить карточку" title="Восстановить" onClick={(e) => { e.stopPropagation(); void restoreItem(item); }}><Icon name="restore" /></button> : <button className="del" aria-label="Удалить или архивировать карточку" onClick={(e) => { e.stopPropagation(); setDisposing(item); }}><Icon name="trash" /></button>}
+          <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setEditing(item); }}>✎</button>
+          {item.archived_at ? <button aria-label="Восстановить карточку" title="Восстановить" onClick={(e) => { e.stopPropagation(); void runtime.restoreItem(item); }}><Icon name="restore" /></button> : <button className="del" aria-label="Удалить или архивировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setDisposing(item); }}><Icon name="trash" /></button>}
         </div>
 
-        {moveMode && <div className="grip" title="Переместить"><span>⠿</span> Переместить</div>}
+        {runtime.moveMode && <div className="grip" title="Переместить"><span>⠿</span> Переместить</div>}
 
         {(item.kind === 'html' || (item.kind === 'embed' && !item.ratio)) && (
           <div className="resize" onPointerDown={(e) => {
@@ -1020,7 +1027,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             const startY = e.clientY, startH = box.offsetHeight;
             const move = (ev: PointerEvent) => { box.style.height = Math.max(140, startH + ev.clientY - startY) + 'px'; };
             const up = () => {
-              patch(item.id, { embedH: box.offsetHeight });
+              runtime.patch(item.id, { embedH: box.offsetHeight });
               window.removeEventListener('pointermove', move);
               window.removeEventListener('pointerup', up);
             };
@@ -1030,7 +1037,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         )}
       </div>
     );
-  }
+  }).current;
 
   function NewElementModal({ kind }: { kind: NewElement }) {
     const [value, setValue] = useState('');
