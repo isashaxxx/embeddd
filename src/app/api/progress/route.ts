@@ -57,3 +57,13 @@ export async function GET() {
     newlyUnlocked: unlockedRows.filter((row) => !beforeKeys.has(row.key)).map((row) => row.key),
   });
 }
+
+/** Ручное пополнение AI-кредитов (например, для тестирования — постоянного авто-пополнения нет). */
+export async function PATCH(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  const delta = Number.isFinite(body?.delta) && body.delta > 0 ? Math.min(Math.round(body.delta), 1000) : 100;
+  const sql = db();
+  await sql`insert into user_stats (id, visits, last_visit, ai_credits) values ('main', 0, null, 100) on conflict (id) do nothing`;
+  const rows = (await sql`update user_stats set ai_credits = ai_credits + ${delta} where id = 'main' returning ai_credits`) as unknown as { ai_credits: number }[];
+  return NextResponse.json({ aiCredits: Number(rows[0]?.ai_credits || 0) });
+}

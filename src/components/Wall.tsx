@@ -138,6 +138,25 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     say(mode === 'auto' ? 'ИИ включён — всё сделает сам' : 'ИИ выключен');
   }
 
+  // ai_credits — фиксированный запас (100 при первом запуске), который
+  // только тратится и никогда не пополняется сам. Когда он кончается,
+  // выключаем автоматический ИИ, а не оставляем его биться в закрытую дверь.
+  useEffect(() => {
+    if (progress && progress.aiCredits <= 0 && aiMode === 'auto') {
+      setAiMode('off');
+      localStorage.setItem('embeddd:ai-mode', 'off');
+      say('ИИ выключен — закончились кредиты');
+    }
+  }, [progress, aiMode, say]);
+
+  async function topUpCredits() {
+    const response = await fetch('/api/progress', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delta: 100 }) });
+    if (!response.ok) return say('Не удалось начислить кредиты');
+    const data = await response.json();
+    setProgress((current) => current ? { ...current, aiCredits: data.aiCredits } : current);
+    say('Начислено 100 AI-кредитов');
+  }
+
   /* ---------------- данные ---------------- */
 
   const projectCollections = (activeProject === 'all' ? [...collections] : collections.filter((c) => c.project_id === activeProject)).sort((a, b) => Number(a.position) - Number(b.position));
@@ -1114,16 +1133,15 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         <header className="topbar">
           <button className="btn ghost menu-btn" aria-label="Открыть коллекции" onClick={() => setMenuOpen((v) => !v)}>☰</button>
           <div className="title-wrap">
-            <h1>{title}</h1>
-            <p>{selectedTag ? `#${selectedTag} · ` : ''}{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
+            {!projectRootView && <><h1>{title}</h1><p>{selectedTag ? `#${selectedTag} · ` : ''}{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p></>}
           </div>
           {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
           <div ref={topSearchRef} className={'top-search' + (searchOpen ? ' open' : '')}>{searchOpen && <input autoFocus value={search} placeholder="Поиск" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />}<button className="icon-control" aria-label="Поиск" title="Поиск" onClick={() => { if (searchOpen && search) setSearch(''); else setSearchOpen((value) => !value); }}><Icon name={searchOpen && search ? 'close' : 'search'} /></button></div>
           {active === 'all' && <button className="icon-control" aria-label="Изменить порядок ленты" title={feedOrder === 'newest' ? 'Сначала новые' : 'Сначала старые'} onClick={() => setFeedOrder((value) => value === 'newest' ? 'oldest' : 'newest')}><Icon name="sort" /></button>}
           <button className={'icon-control move-toggle' + (moveMode ? ' on' : '')} title={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-label={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-pressed={moveMode}
             onClick={() => setMoveMode((value) => !value)}><Icon name={moveMode ? 'check' : 'move'} /></button>
-          <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'}
-            aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span><small className="ai-credit-tooltip">Осталось {progress?.aiCredits ?? '…'} кредитов</small></button>
+          <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'} disabled={progress?.aiCredits === 0}
+            aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} title={progress?.aiCredits === 0 ? 'Кредиты закончились' : undefined} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span><small className="ai-credit-tooltip">Осталось {progress?.aiCredits ?? '…'} кредитов</small></button>
           <div className="add-element">
             {!!aiRunning.length && <span className="ai-status" aria-label="ИИ анализирует" title="ИИ анализирует"><i /></span>}
             <button className="btn lime" aria-expanded={elementMenu} onClick={() => setElementMenu((v) => !v)}>＋ Элемент</button>
@@ -1170,7 +1188,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           {projectRootView && currentProject && (
             <div className="project-hero">
               <div className="project-hero-info">
-                <div className="project-hero-avatar">{account?.avatar_url ? <img src={account.avatar_url} alt="" /> : <span>{(account?.nickname || 'E').slice(0, 1).toUpperCase()}</span>}</div>
+                <div className="project-hero-avatar" style={{ background: currentProject.color }}>{currentProject.name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('')}</div>
                 <h2>{currentProject.name}</h2>
                 <div className="project-hero-meta">
                   <span>С {new Date(currentProject.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
@@ -1443,7 +1461,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       <div className="account-grid"><div className="field"><label>Никнейм</label><input value={nickname} onChange={(event) => setNickname(event.target.value)} /></div><div className="field"><label>Email</label><input type="email" value={email} placeholder="name@example.com" onChange={(event) => setEmail(event.target.value)} /></div></div>
       <div className="field"><label>Роль</label><select value={role} onChange={(event) => setRole(event.target.value as Account['role'])}><option value="owner">Владелец</option><option value="editor">Редактор</option><option value="viewer">Наблюдатель</option></select></div>
       <div className="permissions"><label>Права</label>{permissionOptions.map(([value, title, note]) => <button key={value} className={permissions.includes(value) ? 'on' : ''} onClick={() => setPermissions((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])}><i>{permissions.includes(value) ? '✓' : ''}</i><span><b>{title}</b><small>{note}</small></span></button>)}</div>
-      <div className="account-meta"><span>AI-кредиты</span><b>{progress?.aiCredits ?? '—'}</b></div>
+      <div className="account-meta"><span>AI-кредиты <b>{progress?.aiCredits ?? '—'}</b></span><button className="btn ghost" onClick={() => void topUpCredits()}>+100 (тест)</button></div>
       <div className="modal-foot"><button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={logout}>Выйти</button><button className="btn ghost" onClick={() => setAccountOpen(false)}>Отмена</button><button className="btn" onClick={async () => { await saveAccount({ nickname, email, role, permissions }); setAccountOpen(false); }}>Сохранить</button></div>
     </div></div>;
   }
