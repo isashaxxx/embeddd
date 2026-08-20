@@ -221,10 +221,6 @@ button{cursor:pointer;border:none;background:none;padding:0}
   font-family:var(--font-mono),monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
   padding:3px 6px;border-radius:5px;background:rgba(20,20,15,.06);color:var(--muted);white-space:nowrap;
 }
-.card-tags{display:flex;flex-wrap:wrap;gap:4px;padding:5px 8px 1px;position:relative;z-index:4}
-.card-tags button,.ai-tags span{padding:4px 7px;border-radius:999px;background:var(--hover);color:var(--muted);font-size:9px;line-height:1.1}
-.card-tags button:hover{background:var(--accent);color:var(--ink)}
-.ai-tags{display:flex;flex-wrap:wrap;gap:5px;margin:-4px 0 14px}.ai-tags span{font-size:10px}
 .tools{
   position:absolute;top:8px;right:8px;display:flex;gap:4px;opacity:0;
   transition:opacity .14s;z-index:4;
@@ -357,7 +353,10 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .lb{position:fixed;inset:0;z-index:70;display:none;background:rgba(14,14,10,.94)}
 .lb.on{display:flex;align-items:center;justify-content:center}
 .lb img,.lb video{max-width:92vw;max-height:86vh;border-radius:10px;box-shadow:0 30px 90px rgba(0,0,0,.6)}
-.lb-cap{position:absolute;bottom:22px;left:0;right:0;text-align:center;color:rgba(255,255,255,.75);font-size:13px}
+.lb-cap{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);max-width:min(760px,90vw);text-align:center;color:rgba(255,255,255,.75);font-size:13px}
+.lb-tags{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:9px}
+.lb-tags button{padding:5px 9px;border-radius:999px;background:rgba(255,255,255,.14);color:#fff;font-size:10px;backdrop-filter:blur(8px)}
+.lb-tags button:hover{background:var(--accent);color:var(--ink)}
 .lb-x{position:absolute;top:18px;right:22px;color:#fff;font-size:26px;opacity:.7}
 .lb-arrow{position:absolute;top:50%;transform:translateY(-50%);color:#fff;font-size:34px;opacity:.5;padding:20px}
 .lb-arrow:hover{opacity:1}

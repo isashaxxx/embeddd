@@ -826,10 +826,6 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           </div>
         )}
 
-        {!!item.tags?.length && <div className="card-tags">{item.tags.map((tag) => <button key={tag} onClick={(event) => {
-          event.stopPropagation(); setSelectedTag(tag); setActive('all');
-        }}>#{tag}</button>)}</div>}
-
         <button className={'star' + (item.fav ? ' on' : '')} aria-label={item.fav ? 'Убрать из избранного' : 'Добавить в избранное'}
           onClick={(e) => { e.stopPropagation(); patch(item.id, { fav: !item.fav }); }}>
           {item.fav ? '★' : '☆'}
@@ -980,7 +976,12 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         {it.kind === 'video'
           ? <video src={it.src || ''} controls autoPlay />
           : <img src={it.src || it.thumb || ''} alt="" />}
-        <div className="lb-cap">{it.title} · {idx + 1}/{list.length}</div>
+        <div className="lb-cap">
+          <span>{it.title} · {idx + 1}/{list.length}</span>
+          {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
+            event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
+          }}>#{tag}</button>)}</div>}
+        </div>
       </div>
     );
   }
