@@ -81,19 +81,26 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     let cancelled = false;
     let observer: ResizeObserver | null = null;
     let frame = 0;
+    let pendingOrder: string[] | null = null;
 
     void import('muuri').then(({ default: MuuriGrid }) => {
       if (cancelled || !grid.isConnected) return;
       const instance = new MuuriGrid(grid, {
         items: '.grid-item',
         dragEnabled: true,
-        dragHandle: '.grip',
+        dragHandle: '.card',
+        dragStartPredicate: (item, event) => {
+          const target = event.target as HTMLElement | null;
+          if (target?.closest('button, select, input, textarea, a, iframe, video, .resize')) return false;
+          return MuuriGrid.ItemDrag.defaultStartPredicate(item, event, { distance: 5, delay: 0 });
+        },
         dragContainer: document.body,
         layout: { fillGaps: true, horizontal: false, rounding: true },
         layoutDuration: 260,
         layoutEasing: 'ease-out',
         dragSortHeuristics: { sortInterval: 45, minDragDistance: 6, minBounceBackAngle: 1 },
         dragRelease: { duration: 240, easing: 'ease-out', useDragContainer: true },
+        dragAutoScroll: { targets: grid.parentElement ? [grid.parentElement] : [], threshold: 80, safeZone: 0.15 },
         dragPlaceholder: {
           enabled: true,
           createElement: () => { const el = document.createElement('div'); el.className = 'grid-placeholder'; return el; },
@@ -122,13 +129,18 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         const underPointer = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
         const collectionTarget = underPointer?.closest<HTMLElement>('[data-collection-drop]')?.dataset.collectionDrop;
         if (id && collectionTarget) moveTo(id, collectionTarget);
-        else persistGridOrder(instance.getItems().map((entry) => entry.getElement()?.dataset.cardId).filter(Boolean) as string[]);
+        else pendingOrder = instance.getItems().map((entry) => entry.getElement()?.dataset.cardId).filter(Boolean) as string[];
       });
       instance.on('dragReleaseEnd', (item) => {
         const element = item.getElement();
         if (!element) return;
         element.style.removeProperty('width');
         instance.refreshItems([item]).layout();
+        if (pendingOrder) {
+          const order = pendingOrder;
+          pendingOrder = null;
+          persistGridOrder(order);
+        }
       });
 
       const relayout = () => {
