@@ -43,7 +43,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [draggingBoard, setDraggingBoard] = useState<string | null>(null);
-  const [upload, setUpload] = useState<{ done: number; total: number } | null>(null);
+  const [upload, setUpload] = useState<{ done: number; total: number; label: string } | null>(null);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [dropping, setDropping] = useState(false);
   const [moveMode, setMoveMode] = useState(false);
@@ -416,6 +416,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const removed = items.filter((item) => itemIds.includes(item.id));
     setItems((p) => p.filter((item) => !itemIds.includes(item.id) && !(item.collection_id && boardIds.includes(item.collection_id))));
     setCollections((p) => p.filter((c) => !boardIds.includes(c.id)));
+    if (boardIds.length) collectionCreationRef.current.clear();
     if (boardIds.includes(active)) setActive('all');
     setSelected(new Set());
 
@@ -442,6 +443,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const affected = items.filter((item) => item.collection_id && sourceIds.includes(item.collection_id));
     setItems((p) => p.map((item) => item.collection_id && sourceIds.includes(item.collection_id) ? { ...item, collection_id: target.id } : item));
     setCollections((p) => p.filter((c) => !sourceIds.includes(c.id)));
+    collectionCreationRef.current.clear();
     if (sourceIds.includes(active)) setActive(target.id);
     setSelected(new Set());
 
@@ -509,11 +511,12 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       await Promise.all(sourceIds.map((id) => fetch(`/api/collections/${id}`, { method: 'DELETE' })));
       mergedCount += sourceIds.length;
     }
+    collectionCreationRef.current.clear();
     setSelected(new Set());
     say(`Объединено бордов: ${mergedCount}`);
   }
 
-  async function placeAutomatically(item: Item, result: AiSuggestion) {
+  async function placeAutomatically(item: Item, result: AiSuggestion, projectIdOverride?: string | null) {
     // A board explicitly chosen by the user always wins over AI auto-placement.
     // AI may enrich the card, but silently moving a freshly uploaded item makes
     // it look as if the upload failed in the currently open board.
@@ -526,7 +529,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     // Uploading inside a project must keep the new board inside that project —
     // otherwise the card has no collection_id/project link and silently
     // disappears from the project view, only showing up back in "Всё".
-    const projectId = activeProject === 'all' ? null : activeProject;
+    const projectId = projectIdOverride !== undefined ? projectIdOverride : (activeProject === 'all' ? null : activeProject);
     const scoped = projectId === null ? collections : collections.filter((c) => c.project_id === projectId);
     const existingOption = result.collections.find((name) => scoped.some((c) => c.name.toLocaleLowerCase() === name.toLocaleLowerCase()));
     const collectionName = existingOption || result.collections[0];
@@ -534,9 +537,15 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const key = `${projectId || 'none'}:${nameKey}`;
     let collection = scoped.find((c) => c.name.toLocaleLowerCase() === nameKey);
     if (!collection) {
-      // A batch upload fires AI placement for every photo at once; several can
-      // land here for the same board name before any of them has finished
-      // creating it. Share one in-flight request instead of racing duplicates.
+      // A batch upload fires AI placement for every photo close together, so
+      // several calls can land here for the same board name before any of
+      // them has finished creating it — share one in-flight request instead
+      // of racing duplicates. Crucially, once that request SUCCEEDS we keep
+      // it cached here too (not just deleted on settle): `collections` React
+      // state only updates on the next render, but items later in the same
+      // batch are already-created closures still holding the pre-render
+      // snapshot, so without this cache they'd never see the board this ref
+      // just created and would each create their own duplicate.
       let creation = collectionCreationRef.current.get(key);
       if (!creation) {
         const colors = ['#C6F04A', '#FFB86B', '#87CEEB', '#D6B4FC', '#FF8F8F'];
@@ -546,7 +555,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         }).then((res) => {
           if (!res.ok) throw new Error('collection create failed');
           return res.json() as Promise<Collection>;
-        }).finally(() => collectionCreationRef.current.delete(key));
+        });
+        creation.catch(() => { collectionCreationRef.current.delete(key); });
         collectionCreationRef.current.set(key, creation);
       }
       try {
@@ -560,23 +570,24 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     say(collection ? `ИИ разместил в «${collection.name}»` : 'ИИ назвал карточку');
   }
 
-  async function analyzeImage(item: Item, manual = false) {
+  async function analyzeImage(item: Item, manual = false, projectIdOverride?: string | null) {
     if (aiMode === 'off') {
       if (manual) say('ИИ выключен');
       return;
     }
     if (aiRunning.includes(item.id)) return;
+    const projectId = projectIdOverride !== undefined ? projectIdOverride : (activeProject === 'all' ? null : activeProject);
     setAiRunning((p) => [...p, item.id]);
     try {
       const res = await fetch('/api/ai/analyze', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ imageUrl: item.src || item.thumb, projectId: activeProject === 'all' ? null : activeProject }),
+        body: JSON.stringify({ imageUrl: item.src || item.thumb, projectId }),
       });
       const result = await res.json();
       if (typeof result.creditsRemaining === 'number') setProgress((current) => current ? { ...current, aiCredits: result.creditsRemaining } : current);
       if (!res.ok) return say(result.error || 'ИИ-анализ не сработал');
-      await placeAutomatically(item, result);
+      await placeAutomatically(item, result, projectId);
     } catch {
       say('Не удалось связаться с ИИ');
     } finally {
@@ -590,8 +601,17 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     if (oversized) say(`${oversized} файл не добавлен: максимум 250 МБ`);
     if (!list.length) return say('Нужны картинки или видео');
     const destination = targetCollection();
+    // Фиксируем проект-назначение один раз на весь батч — если во время
+    // долгой пакетной загрузки пользователь успеет перейти в другой раздел,
+    // уже стартовавшая загрузка не должна "поплыть" за навигацией.
+    const destinationProjectId = activeProject === 'all' ? null : activeProject;
+    const destinationLabel = destination
+      ? collections.find((c) => c.id === destination)?.name || 'борд'
+      : destinationProjectId
+        ? projects.find((p) => p.id === destinationProjectId)?.name || 'проект'
+        : 'Всё';
 
-    setUpload({ done: 0, total: list.length });
+    setUpload({ done: 0, total: list.length, label: destinationLabel });
     let succeeded = 0;
     for (let n = 0; n < list.length; n++) {
       const file = list[n];
@@ -661,11 +681,11 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         const real: Item = await res.json();
         setItems((p) => [real, ...p]);
         succeeded++;
-        if (!isVideo && aiMode !== 'off') void analyzeImage(real);
+        if (!isVideo && aiMode !== 'off') void analyzeImage(real, false, destinationProjectId);
       } catch (error) {
         say(`${file.name}: ${error instanceof Error ? error.message : 'файл не загрузился'}`);
       }
-      setUpload({ done: n + 1, total: list.length });
+      setUpload({ done: n + 1, total: list.length, label: destinationLabel });
     }
     setUpload(null);
     if (succeeded) say(`${succeeded} ${succeeded === 1 ? 'файл добавлен' : 'файла добавлено'}`);
@@ -862,6 +882,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     // Удаление борда каскадно сносит все его карточки.
     setCollections((p) => p.filter((x) => x.id !== c.id));
     setItems((p) => p.filter((i) => i.collection_id !== c.id));
+    collectionCreationRef.current.clear();
     if (active === c.id) setActive('all');
     setCollModal(null);
     await fetch(`/api/collections/${c.id}`, { method: 'DELETE' });
@@ -1259,7 +1280,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
       {upload && (
         <div className="upload-bar">
-          Загружаю {upload.done}/{upload.total}
+          Загружаю {upload.done}/{upload.total} в «{upload.label}»
           <span className="bar"><i style={{ width: `${(upload.done / upload.total) * 100}%` }} /></span>
         </div>
       )}
