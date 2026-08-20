@@ -5,10 +5,15 @@ export const metadata: Metadata = {
   title: 'embeddd',
   description: 'Коллекции референсов: ссылки, картинки, видео — в одной сетке',
   manifest: '/manifest.webmanifest',
+  icons: {
+    icon: [{ url: '/logo.svg', type: 'image/svg+xml' }],
+    shortcut: '/logo.svg',
+    apple: '/logo.svg',
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#EDEBE4',
+  themeColor: '#FFFFFF',
   width: 'device-width',
   initialScale: 1,
 };

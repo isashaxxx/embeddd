@@ -3,9 +3,9 @@
   "short_name": "embeddd",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#EDEBE4",
-  "theme_color": "#EDEBE4",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }],
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
+  "icons": [{ "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }],
   "share_target": {
     "action": "/share",
     "method": "GET",

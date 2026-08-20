@@ -25,8 +25,8 @@ export default function Login() {
     <div className="login-wrap">
       <div className="login-box">
         <div className="brand">
+          <img className="brand-mark" src="/logo.svg" alt="" />
           <b>embeddd</b>
-          <span>refs</span>
         </div>
         <input
           type="password"

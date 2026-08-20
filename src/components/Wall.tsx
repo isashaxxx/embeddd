@@ -43,7 +43,6 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [gridMetrics, setGridMetrics] = useState({ width: 0, columns: 2 });
   const fileRef = useRef<HTMLInputElement>(null);
-  const importRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const selectionBoxRef = useRef<HTMLDivElement>(null);
   const selectionIdsRef = useRef<Set<string>>(new Set());
@@ -521,7 +520,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   return (
     <div className="app">
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
-        <div className="brand"><b>embeddd</b><span>refs</span></div>
+        <div className="brand"><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></div>
         <div className="nav">
           <NavRow id="all" name="Всё" count={countOf('all')} />
           <NavRow id="fav" name="Избранное" count={countOf('fav')} />
@@ -534,9 +533,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           </button>
         </div>
         <div className="side-foot">
-          <button onClick={() => importRef.current?.click()}>Импорт из локалки</button>
           <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); location.href = '/login'; }}>Выйти</button>
-          <input ref={importRef} type="file" accept="application/json" hidden onChange={onImport} />
         </div>
       </aside>
 
@@ -937,18 +934,6 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     );
   }
 
-  async function onImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    e.target.value = '';
-    if (!f) return;
-    const res = await fetch('/api/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: await f.text() });
-    const r = await res.json();
-    if (!res.ok) return say(r.error || 'Файл не читается');
-    say(`Перенесено ${r.added}, пропущено локальных файлов: ${r.skipped}`);
-    const st = await (await fetch('/api/state')).json();
-    setCollections(st.collections);
-    setItems(st.items);
-  }
 }
 
 /* ---------------- мелочи ---------------- */
