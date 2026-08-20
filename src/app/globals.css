@@ -117,7 +117,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .card{
   position:absolute;margin:0;background:var(--panel);
   border-radius:var(--r);border:1px solid var(--line-soft);
-  overflow:hidden;position:relative;cursor:zoom-in;
+  overflow:hidden;cursor:zoom-in;
   box-shadow:var(--shadow);
   transition:box-shadow .18s, transform .18s, left .24s cubic-bezier(.2,.8,.2,1), top .24s cubic-bezier(.2,.8,.2,1), width .24s cubic-bezier(.2,.8,.2,1);
 }
