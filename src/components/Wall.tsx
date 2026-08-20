@@ -424,6 +424,28 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     else say('Удалено');
   }
 
+  async function mergeSelectedBoards() {
+    const boardIds = [...selected].filter((id) => id.startsWith('board:')).map((id) => id.slice(6));
+    if (boardIds.length < 2) return;
+    const boards = collections.filter((c) => boardIds.includes(c.id));
+    // Оставляем борд с наибольшим количеством карточек — меньше всего
+    // переименовывать/переносить руками после объединения.
+    const target = boards.reduce((best, b) => (countOf(b.id) > countOf(best.id) ? b : best), boards[0]);
+    const sources = boards.filter((b) => b.id !== target.id);
+    if (!confirm(`Объединить ${boards.length} бордов в «${target.name}»?`)) return;
+
+    const sourceIds = sources.map((b) => b.id);
+    const affected = items.filter((item) => item.collection_id && sourceIds.includes(item.collection_id));
+    setItems((p) => p.map((item) => item.collection_id && sourceIds.includes(item.collection_id) ? { ...item, collection_id: target.id } : item));
+    setCollections((p) => p.filter((c) => !sourceIds.includes(c.id)));
+    if (sourceIds.includes(active)) setActive(target.id);
+    setSelected(new Set());
+
+    await Promise.all(affected.map((item) => fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collectionId: target.id }) })));
+    await Promise.all(sourceIds.map((id) => fetch(`/api/collections/${id}`, { method: 'DELETE' })));
+    say(`Объединено в «${target.name}»`);
+  }
+
   async function placeAutomatically(item: Item, result: AiSuggestion) {
     // A board explicitly chosen by the user always wins over AI auto-placement.
     // AI may enrich the card, but silently moving a freshly uploaded item makes
@@ -482,7 +504,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       const res = await fetch('/api/ai/analyze', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ imageUrl: item.src || item.thumb, existingCollections: collections.map((c) => c.name) }),
+        body: JSON.stringify({ imageUrl: item.src || item.thumb, projectId: activeProject === 'all' ? null : activeProject }),
       });
       const result = await res.json();
       if (typeof result.creditsRemaining === 'number') setProgress((current) => current ? { ...current, aiCredits: result.creditsRemaining } : current);
@@ -1106,6 +1128,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           <option value="__none__">Без коллекции</option>
           {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        {[...selected].filter((id) => id.startsWith('board:')).length >= 2 && <button onClick={mergeSelectedBoards}>Объединить</button>}
         <button className="selection-delete" onClick={deleteSelected}>Удалить</button>
         <button aria-label="Снять выделение" onClick={() => setSelected(new Set())}>×</button>
       </div>}
