@@ -691,8 +691,11 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <NavRow id="all" name="Всё" count={countOf('all')} />
             <NavRow id="fav" name="Избранное" count={countOf('fav')} />
             <NavRow id="archive" name="Архив" count={countOf('archive')} />
-            <div className="nav-label">Проекты</div>
-            {projects.map((project) => <div key={project.id} className={'project-tree' + (projectDrop === project.id ? ' drop' : '')} onDragOver={(event) => { if (!draggingBoard) return; event.preventDefault(); setProjectDrop(project.id); }} onDragLeave={() => setProjectDrop(null)} onDrop={(event) => { event.preventDefault(); if (draggingBoard) void moveBoardToProject(draggingBoard, project.id); setDraggingBoard(null); setProjectDrop(null); }}>
+            {projects.map((project) => <div key={project.id} className={'project-tree' + (projectDrop === project.id ? ' drop' : '')}
+              onDragEnter={(event) => { if (!event.dataTransfer.types.includes('application/x-embeddd-board')) return; event.preventDefault(); setProjectDrop(project.id); }}
+              onDragOver={(event) => { if (!event.dataTransfer.types.includes('application/x-embeddd-board')) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setProjectDrop(project.id); }}
+              onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setProjectDrop(null); }}
+              onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const boardId = event.dataTransfer.getData('application/x-embeddd-board') || event.dataTransfer.getData('text/plain') || draggingBoard; if (boardId) void moveBoardToProject(boardId, project.id); setDraggingBoard(null); setProjectDrop(null); }}>
               <button className="project-row" onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/projects/${project.slug}`); }}>
                 <span style={{ background: project.color }} /> <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
               </button>
@@ -844,7 +847,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     return (
       <div
         draggable={!!coll}
-        onDragStart={(event) => { if (!coll) return; setDraggingBoard(coll.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', coll.id); }}
+        onDragStart={(event) => { if (!coll) return; setDraggingBoard(coll.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-embeddd-board', coll.id); event.dataTransfer.setData('text/plain', coll.id); }}
         onDragEnd={() => { setDraggingBoard(null); setProjectDrop(null); }}
         data-collection-drop={id}
         className={'coll' + (active === id ? ' active' : '') + (compact ? ' compact' : '') + (draggingBoard === coll?.id ? ' board-dragging' : '')}
