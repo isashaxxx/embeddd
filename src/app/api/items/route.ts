@@ -1,0 +1,58 @@
+import { NextResponse } from 'next/server';
+import { db, uid } from '@/lib/db';
+import { parseLink, unfurl } from '@/lib/parse';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 15;
+
+/**
+ * Две ветки:
+ *  { url, collectionId }              — ссылка, сервер сам распознаёт и тянет og:image
+ *  { upload: {...}, collectionId }    — файл, уже залитый браузером в R2
+ */
+export async function POST(req: Request) {
+  const sql = db();
+  const body = await req.json();
+  const collectionId: string | null = body.collectionId || null;
+
+  // позиция: наверх стены
+  const [{ min }] = (await sql`select coalesce(min(position), 0) as min from items`) as { min: number }[];
+  const position = Number(min) - 1;
+  const id = uid();
+
+  if (body.upload) {
+    const u = body.upload;
+    await sql`
+      insert into items (id, collection_id, kind, provider, position, src, thumb, width, height,
+                         r2_key, r2_thumb_key, title)
+      values (${id}, ${collectionId}, ${u.kind}, 'local', ${position}, ${u.src}, ${u.thumb ?? u.src},
+              ${u.width ?? null}, ${u.height ?? null}, ${u.key}, ${u.thumbKey ?? null}, ${u.title ?? ''})`;
+    return NextResponse.json(await one(id));
+  }
+
+  const p = parseLink(String(body.url || ''));
+  if (!p) return NextResponse.json({ error: 'Не похоже на ссылку' }, { status: 400 });
+
+  // для закладок и картинок подтягиваем превью со страницы
+  let title = p.title || '';
+  let thumb = p.thumb || null;
+  if (p.kind === 'link') {
+    const meta = await unfurl(p.url);
+    if (meta.title) title = meta.title;
+    if (meta.thumb) thumb = meta.thumb;
+  }
+
+  await sql`
+    insert into items (id, collection_id, kind, provider, position, url, host,
+                       embed_url, embed_h, ratio, src, thumb, title)
+    values (${id}, ${collectionId}, ${p.kind}, ${p.provider}, ${position}, ${p.url}, ${p.host},
+            ${p.embedUrl ?? null}, ${p.embedH ?? null}, ${p.ratio ?? null},
+            ${p.src ?? null}, ${thumb}, ${title})`;
+
+  return NextResponse.json(await one(id));
+}
+
+async function one(id: string) {
+  const rows = (await db()`select * from items where id = ${id}`) as unknown[];
+  return rows[0];
+}

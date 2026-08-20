@@ -1,0 +1,29 @@
+export type Collection = {
+  id: string;
+  name: string;
+  color: string;
+  position: number;
+};
+
+export type Item = {
+  id: string;
+  collection_id: string | null;
+  kind: 'image' | 'video' | 'embed' | 'link';
+  provider: string | null;
+  position: number;
+  fav: boolean;
+  url: string | null;
+  host: string | null;
+  embed_url: string | null;
+  embed_h: number | null;
+  ratio: number | null;
+  src: string | null;
+  thumb: string | null;
+  width: number | null;
+  height: number | null;
+  r2_key: string | null;
+  r2_thumb_key: string | null;
+  title: string;
+  note: string;
+  created_at?: string;
+};
