@@ -107,7 +107,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       const instance = new MuuriGrid(grid, {
         items: '.grid-item',
         dragEnabled: true,
-        dragHandle: '.card',
+        dragHandle: null,
         dragStartPredicate: (item, event) => {
           const target = event.target as HTMLElement | null;
           if (target?.closest('button, select, input, textarea, a, iframe, video, .resize')) return false;
