@@ -31,6 +31,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<Active>(initialActive);
   const [editing, setEditing] = useState<Item | null>(null);
+  const [disposing, setDisposing] = useState<Item | null>(null);
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
   const [projectModal, setProjectModal] = useState<Project | 'new' | null>(null);
   const [activeProject, setActiveProject] = useState<string>(initialProject);
@@ -100,7 +101,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const projectCollections = activeProject === 'all' ? collections : collections.filter((c) => c.project_id === activeProject);
   const projectCollectionIds = new Set(projectCollections.map((c) => c.id));
   const visible = items.filter((i) => {
-    const inSection = active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active;
+    const inSection = active === 'archive' ? !!i.archived_at : !i.archived_at && (active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active);
     const inProject = activeProject === 'all' || (!!i.collection_id && projectCollectionIds.has(i.collection_id));
     const haystack = `${i.title} ${i.note} ${(i.tags || []).join(' ')}`.toLocaleLowerCase();
     return inSection && inProject && (!selectedTag || i.tags?.includes(selectedTag)) && (!search.trim() || haystack.includes(search.trim().toLocaleLowerCase()));
@@ -118,7 +119,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     : visible.map((value) => ({ type: 'item' as const, value }));
 
   const countOf = (id: Active) =>
-    id === 'all' ? items.length : id === 'fav' ? items.filter((i) => i.fav).length : items.filter((i) => i.collection_id === id).length;
+    id === 'all' ? items.filter((i) => !i.archived_at).length : id === 'fav' ? items.filter((i) => i.fav && !i.archived_at).length : id === 'archive' ? items.filter((i) => i.archived_at).length : items.filter((i) => i.collection_id === id && !i.archived_at).length;
 
   const targetCollection = () => (active === 'all' || active === 'fav' ? null : active);
 
@@ -258,7 +259,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       position: -Infinity, fav: false, url, host: safeHost(url), embed_url: null, embed_h: null,
       ratio: null, src: null, thumb: null, width: null, height: null, r2_key: null,
       r2_thumb_key: null, title: safeHost(url), note: '', display_size: 'M', text_style: 'p',
-      tags: [], created_at: new Date().toISOString(),
+      tags: [], archived_at: null, content_hash: null, created_at: new Date().toISOString(),
     };
     setItems((p) => [optimistic, ...p]);
 
@@ -391,7 +392,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   }
 
   async function addFiles(files: File[]) {
-    const list = files.filter((f) => /^(image|video)\//.test(f.type));
+    const list = files.filter((f) => /^(image|video)\//.test(f.type) && f.size <= 250 * 1024 * 1024);
+    const oversized = files.length - list.length;
+    if (oversized) say(`${oversized} файл не добавлен: максимум 250 МБ`);
     if (!list.length) return say('Нужны картинки или видео');
     const destination = targetCollection();
 
@@ -439,6 +442,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           if (!thumbUpload.ok) throw new Error(`Не загрузилось превью (${thumbUpload.status})`);
         }
 
+        const contentHash = body.size <= 64 * 1024 * 1024
+          ? [...new Uint8Array(await crypto.subtle.digest('SHA-256', await body.arrayBuffer()))].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+          : null;
         const res = await fetch('/api/items', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -449,6 +455,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               key: signed.key, thumbKey: signed.thumbKey,
               src: signed.src, thumb: signed.thumb ?? signed.src,
               width, height, title: file.name.replace(/\.[^.]+$/, ''),
+              contentHash,
             },
           }),
         });
@@ -490,6 +497,19 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       });
       say('Не удалось удалить карточку');
     }
+  }
+
+  async function archiveItem(item: Item) {
+    setItems((current) => current.map((value) => value.id === item.id ? { ...value, archived_at: new Date().toISOString() } : value));
+    setDisposing(null);
+    await fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ archived: true }) });
+    say('Карточка в архиве на 30 дней');
+  }
+
+  async function restoreItem(item: Item) {
+    setItems((current) => current.map((value) => value.id === item.id ? { ...value, archived_at: null } : value));
+    await fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ archived: false }) });
+    say('Карточка восстановлена');
   }
 
   function moveTo(itemId: string, target: Active) {
@@ -670,6 +690,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           </> : <>
             <NavRow id="all" name="Всё" count={countOf('all')} />
             <NavRow id="fav" name="Избранное" count={countOf('fav')} />
+            <NavRow id="archive" name="Архив" count={countOf('archive')} />
             <div className="nav-label">Проекты</div>
             {projects.map((project) => <div key={project.id} className={'project-tree' + (projectDrop === project.id ? ' drop' : '')} onDragOver={(event) => { if (!draggingBoard) return; event.preventDefault(); setProjectDrop(project.id); }} onDragLeave={() => setProjectDrop(null)} onDrop={(event) => { event.preventDefault(); if (draggingBoard) void moveBoardToProject(draggingBoard, project.id); setDraggingBoard(null); setProjectDrop(null); }}>
               <button className="project-row" onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/projects/${project.slug}`); }}>
@@ -796,6 +817,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       </div>}
 
       {editing && <EditModal item={editing} />}
+      {disposing && <div className="overlay on" onClick={(event) => { if (event.target === event.currentTarget) setDisposing(null); }}><div className="modal dispose-modal"><h3>Что сделать с карточкой?</h3><p>В архиве она будет храниться 30 дней, затем удалится окончательно.</p><div className="dispose-actions"><button onClick={() => archiveItem(disposing)}><Icon name="archive" /><span><b>Архивировать</b><small>Можно восстановить в течение 30 дней</small></span></button><button className="danger" onClick={() => { const item = disposing; setDisposing(null); void remove(item); }}><Icon name="trash" /><span><b>Удалить навсегда</b><small>Файл сразу удалится из хранилища</small></span></button></div><div className="modal-foot"><button className="btn ghost" onClick={() => setDisposing(null)}>Отмена</button></div></div></div>}
       {collModal && <CollModal />}
       {projectModal && <ProjectModal />}
       {accountOpen && <AccountModal />}
@@ -866,7 +888,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             style={item.width && item.height ? { aspectRatio: `${item.width}/${item.height}` } : undefined} />
         )}
 
-        {item.kind === 'video' && <video className={`media crop-${crop}`} draggable={false} controls preload="none" src={item.src || ''} />}
+        {item.kind === 'video' && <AutoVideo className={`media crop-${crop}`} src={item.src || ''} />}
 
         {item.kind === 'embed' && (
           <div ref={boxRef} className="embed-box"
@@ -932,7 +954,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           </select>}
           {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
           <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); setEditing(item); }}>✎</button>
-          <button className="del" aria-label="Удалить карточку" onClick={(e) => { e.stopPropagation(); remove(item); }}>×</button>
+          {item.archived_at ? <button aria-label="Восстановить карточку" title="Восстановить" onClick={(e) => { e.stopPropagation(); void restoreItem(item); }}><Icon name="restore" /></button> : <button className="del" aria-label="Удалить или архивировать карточку" onClick={(e) => { e.stopPropagation(); setDisposing(item); }}><Icon name="trash" /></button>}
         </div>
 
         {moveMode && <div className="grip" title="Переместить"><span>⠿</span> Переместить</div>}
@@ -1093,16 +1115,13 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   function Lightbox() {
     const list = visible.filter((i) => i.kind === 'image' || i.kind === 'video');
-    const idx = list.findIndex((i) => i.id === lightbox);
-    const it = list[idx];
+    const it = list.find((i) => i.id === lightbox);
     if (!it) return null;
-    const go = (d: number) => {
-      const next = list[(idx + d + list.length) % list.length];
-      setLightbox(next.id);
-      window.history.replaceState({ embedddPost: next.id }, '', `/posts/${next.slug}`);
-    };
     const [description, setDescription] = useState(it.note || '');
     const [editingDescription, setEditingDescription] = useState(false);
+    const board = collections.find((value) => value.id === it.collection_id);
+    const project = projects.find((value) => value.id === board?.project_id);
+    const recommendations = items.filter((value) => value.id !== it.id && !value.archived_at && (value.kind === 'image' || value.kind === 'video') && (value.collection_id === it.collection_id || value.tags?.some((tag) => it.tags?.includes(tag)))).slice(0, 6);
 
     return (
       <div className="lb on" onClick={(event) => { if (event.target === event.currentTarget) { setLightbox(null); router.back(); } }}>
@@ -1110,12 +1129,13 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         <div className="pin-detail">
           <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} controls autoPlay /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}</div>
           <div className="pin-detail-info">
-            <div className="pin-detail-actions"><button aria-label="Предыдущая" onClick={() => go(-1)}>‹</button><span>{idx + 1}/{list.length}</span><button aria-label="Следующая" onClick={() => go(1)}>›</button></div>
             <h2>{it.title || 'Без названия'}</h2>
             <div className="description-field"><label>Описание</label>{editingDescription ? <textarea autoFocus value={description} placeholder="Добавить описание…" onChange={(event) => setDescription(event.target.value)} onBlur={() => { void patch(it.id, { note: description }); setEditingDescription(false); }} /> : <button className={'description-read' + (!description ? ' empty' : '')} onClick={() => setEditingDescription(true)}>{description || 'Добавить описание'}</button>}</div>
             {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
             event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
           }}>#{tag}</button>)}</div>}
+            {(project || board) && <div className="detail-location">{project && <button onClick={() => { setLightbox(null); router.push(`/projects/${project.slug}`); }}><small>Проект</small><b>{project.name}</b></button>}{board && <button onClick={() => { setLightbox(null); router.push(`/boards/${board.slug}`); }}><small>Борд</small><b>{board.name}</b></button>}</div>}
+            {!!recommendations.length && <div className="detail-recommendations"><label>Похожие</label><div>{recommendations.map((item) => <button key={item.id} onClick={() => { setLightbox(item.id); window.history.replaceState({ embedddPost: item.id }, '', `/posts/${item.slug}`); }}>{item.kind === 'video' ? <video muted playsInline preload="metadata" src={item.src || ''} /> : <img src={item.thumb || item.src || ''} alt="" />}</button>)}</div></div>}
             <button className="detail-edit" onClick={() => { setEditing(it); setLightbox(null); }}>Редактировать карточку</button>
           </div>
         </div>
@@ -1127,7 +1147,24 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
 /* ---------------- мелочи ---------------- */
 
-function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' }) {
+function AutoVideo({ src, className }: { src: string; className: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) setNear(true);
+      if (entry.intersectionRatio >= .55) void video.play().catch(() => {});
+      else video.pause();
+    }, { rootMargin: '280px 0px', threshold: [0, .55] });
+    observer.observe(video);
+    return () => { observer.disconnect(); video.pause(); };
+  }, []);
+  return <video ref={ref} className={className} draggable={false} muted loop playsInline preload="none" src={near ? src : undefined} />;
+}
+
+function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' }) {
   const paths: Record<typeof name, React.ReactNode> = {
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     close: <><path d="M6 6l12 12M18 6 6 18"/></>,
@@ -1138,6 +1175,9 @@ function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' |
     back: <><path d="m15 18-6-6 6-6"/><path d="M9 12h11"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
     plus: <path d="M12 5v14M5 12h14"/>,
+    archive: <><path d="M4 7h16v13H4zM3 4h18v3H3zM9 11h6"/></>,
+    trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></>,
+    restore: <><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8"/><path d="M4 3v5h5"/></>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db, slugify, uid } from '@/lib/db';
 import { parseLink, unfurl } from '@/lib/parse';
+import { deleteKeys } from '@/lib/r2';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 15;
@@ -28,11 +29,18 @@ export async function POST(req: Request) {
 
   if (body.upload) {
     const u = body.upload;
+    if (u.contentHash) {
+      const duplicate = (await sql`select id from items where content_hash = ${u.contentHash} and archived_at is null limit 1`) as unknown as { id: string }[];
+      if (duplicate.length) {
+        await deleteKeys([u.key, u.thumbKey].filter(Boolean)).catch(() => {});
+        return NextResponse.json({ error: 'Этот файл уже есть в библиотеке', duplicateId: duplicate[0].id }, { status: 409 });
+      }
+    }
     await sql`
       insert into items (id, slug, collection_id, kind, provider, position, src, thumb, width, height,
-                         r2_key, r2_thumb_key, title)
+                         r2_key, r2_thumb_key, title, content_hash)
       values (${id}, ${await itemSlug(u.title || 'image')}, ${collectionId}, ${u.kind}, 'local', ${position}, ${u.src}, ${u.thumb ?? u.src},
-              ${u.width ?? null}, ${u.height ?? null}, ${u.key}, ${u.thumbKey ?? null}, ${u.title ?? ''})`;
+              ${u.width ?? null}, ${u.height ?? null}, ${u.key}, ${u.thumbKey ?? null}, ${u.title ?? ''}, ${u.contentHash ?? null})`;
     return NextResponse.json(await one(id));
   }
 

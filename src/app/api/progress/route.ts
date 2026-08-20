@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { maintainLibrary } from '@/lib/maintenance';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,7 @@ const definitions = [
 ] as const;
 
 export async function GET() {
+  await maintainLibrary().catch((error) => console.error('Library maintenance failed', error));
   const sql = db();
   await sql`insert into user_stats (id, visits, last_visit) values ('main', 0, null) on conflict (id) do nothing`;
   await sql`update user_stats set visits = visits + 1, last_visit = current_date where id = 'main' and last_visit is distinct from current_date`;

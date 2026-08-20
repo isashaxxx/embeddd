@@ -44,6 +44,8 @@ create table if not exists items (
   display_size  text not null default 'M',
   text_style    text not null default 'p',
   tags          text[] not null default '{}',
+  archived_at   timestamptz,
+  content_hash  text,
   created_at    timestamptz not null default now()
 );
 
@@ -76,6 +78,8 @@ alter table projects add column if not exists slug text;
 alter table collections add column if not exists slug text;
 alter table items add column if not exists slug text;
 alter table user_stats add column if not exists ai_credits integer not null default 100;
+alter table items add column if not exists archived_at timestamptz;
+alter table items add column if not exists content_hash text;
 update projects set slug = id where slug is null;
 update collections set slug = id where slug is null;
 update items set slug = id where slug is null;

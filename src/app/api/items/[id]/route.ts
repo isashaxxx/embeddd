@@ -18,6 +18,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if ('position' in p) await sql`update items set position = ${p.position} where id = ${id}`;
   if ('embedH' in p) await sql`update items set embed_h = ${p.embedH} where id = ${id}`;
   if ('collectionId' in p) await sql`update items set collection_id = ${p.collectionId} where id = ${id}`;
+  if ('archived' in p) await sql`update items set archived_at = ${p.archived ? new Date().toISOString() : null} where id = ${id}`;
   if ('displaySize' in p && ['XS', 'S', 'M', 'L', 'XL'].includes(p.displaySize))
     await sql`update items set display_size = ${p.displaySize} where id = ${id}`;
   if ('textStyle' in p && ['p', 'h1', 'h2', 'h3', 'h4', 'h5'].includes(p.textStyle))
