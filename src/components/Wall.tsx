@@ -73,6 +73,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const selectionIdsRef = useRef<Set<string>>(new Set());
   const gridRef = useRef<HTMLDivElement>(null);
   const muuriRef = useRef<Muuri | null>(null);
+  const muuriCtorRef = useRef<typeof import('muuri').default | null>(null);
   // Concurrent AI placements for a batch upload all resolve around the same
   // time; without this, each independently sees no matching board yet and
   // creates its own, so a 15-photo upload ends up with 15 identical boards.
@@ -201,7 +202,12 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     let frame = 0;
     let pendingOrder: string[] | null = null;
 
-    void import('muuri').then(({ default: MuuriGrid }) => {
+    // Loading the module fresh on every items/moveMode change raced two
+    // destroy+rebuild cycles against each other when changes landed close
+    // together (e.g. deleting twice in a row) — whichever import() resolved
+    // last would silently win, leaving Muuri's layout out of sync with the
+    // DOM. Load the constructor once and reuse it synchronously after that.
+    const setup = (MuuriGrid: typeof import('muuri').default) => {
       if (cancelled || !grid.isConnected) return;
       const instance = new MuuriGrid(grid, {
         items: '.grid-item',
@@ -268,7 +274,16 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       grid.querySelectorAll<HTMLElement>('.grid-item-content').forEach((item) => observer!.observe(item));
       if (grid.parentElement) observer.observe(grid.parentElement);
       relayout();
-    });
+    };
+
+    if (muuriCtorRef.current) {
+      setup(muuriCtorRef.current);
+    } else {
+      void import('muuri').then(({ default: MuuriGrid }) => {
+        muuriCtorRef.current = MuuriGrid;
+        setup(MuuriGrid);
+      });
+    }
 
     return () => {
       cancelled = true;
@@ -405,10 +420,16 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       return;
     }
 
-    const existingOption = result.collections.find((name) => collections.some((c) => c.name.toLocaleLowerCase() === name.toLocaleLowerCase()));
+    // Uploading inside a project must keep the new board inside that project —
+    // otherwise the card has no collection_id/project link and silently
+    // disappears from the project view, only showing up back in "Всё".
+    const projectId = activeProject === 'all' ? null : activeProject;
+    const scoped = projectId === null ? collections : collections.filter((c) => c.project_id === projectId);
+    const existingOption = result.collections.find((name) => scoped.some((c) => c.name.toLocaleLowerCase() === name.toLocaleLowerCase()));
     const collectionName = existingOption || result.collections[0];
-    const key = collectionName.toLocaleLowerCase();
-    let collection = collections.find((c) => c.name.toLocaleLowerCase() === key);
+    const nameKey = collectionName.toLocaleLowerCase();
+    const key = `${projectId || 'none'}:${nameKey}`;
+    let collection = scoped.find((c) => c.name.toLocaleLowerCase() === nameKey);
     if (!collection) {
       // A batch upload fires AI placement for every photo at once; several can
       // land here for the same board name before any of them has finished
@@ -418,7 +439,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         const colors = ['#C6F04A', '#FFB86B', '#87CEEB', '#D6B4FC', '#FF8F8F'];
         creation = fetch('/api/collections', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name: collectionName, color: colors[collections.length % colors.length] }),
+          body: JSON.stringify({ name: collectionName, color: colors[collections.length % colors.length], projectId }),
         }).then((res) => {
           if (!res.ok) throw new Error('collection create failed');
           return res.json() as Promise<Collection>;
@@ -879,7 +900,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <option value="S">S</option><option value="M">M</option><option value="L">L</option>
           </select>}
           {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
-          <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setEditing(item); }}>✎</button>
+          <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setEditing(item); }}><Icon name="edit" /></button>
           {item.archived_at ? <button aria-label="Восстановить карточку" title="Восстановить" onClick={(e) => { e.stopPropagation(); void runtime.restoreItem(item); }}><Icon name="restore" /></button> : <button className="del" aria-label="Удалить или архивировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setDisposing(item); }}><Icon name="trash" /></button>}
         </div>
 
@@ -905,7 +926,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   }).current;
 
   return (
-    <div className={'app' + (moveMode ? ' move-mode' : '') + (lightbox ? ' lightbox-open' : '')}>
+    <div className={'app' + (moveMode ? ' move-mode' : '')}>
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
         <button className="brand brand-home" aria-label="На главную" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
         <div className="nav">
