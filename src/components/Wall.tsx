@@ -46,7 +46,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [gridMetrics, setGridMetrics] = useState({ width: 0, columns: 2 });
   const fileRef = useRef<HTMLInputElement>(null);
-  const dragDepth = useRef(0);
+  const dragResetTimer = useRef<number | null>(null);
   const selectionBoxRef = useRef<HTMLDivElement>(null);
   const selectionIdsRef = useRef<Set<string>>(new Set());
   const gridRef = useRef<HTMLDivElement>(null);
@@ -532,38 +532,42 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   });
 
   useEffect(() => {
-    const enter = (e: DragEvent) => {
-      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
-      dragDepth.current++;
-      setDropping(true);
+    const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.items || [])].some((item) => item.kind === 'file');
+    const reset = () => {
+      if (dragResetTimer.current) window.clearTimeout(dragResetTimer.current);
+      dragResetTimer.current = null;
+      setDropping(false);
     };
-    const leave = () => { if (--dragDepth.current <= 0) { dragDepth.current = 0; setDropping(false); } };
     const over = (e: DragEvent) => {
-      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+      if (!hasFiles(e)) return reset();
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      setDropping(true);
+      if (dragResetTimer.current) window.clearTimeout(dragResetTimer.current);
+      dragResetTimer.current = window.setTimeout(reset, 180);
     };
     const drop = (e: DragEvent) => {
-      dragDepth.current = 0; setDropping(false);
-      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
-      e.preventDefault();
       const files = [...(e.dataTransfer?.files || [])];
-      if (files.length) return addFiles(files);
+      reset();
+      if (!files.length) return;
+      e.preventDefault();
+      return addFiles(files);
     };
-    const reset = () => { dragDepth.current = 0; setDropping(false); };
-    window.addEventListener('dragenter', enter);
-    window.addEventListener('dragleave', leave);
+    const preventNativeImageDrag = (e: DragEvent) => {
+      if ((e.target as HTMLElement | null)?.closest('img')) e.preventDefault();
+    };
     window.addEventListener('dragover', over);
     window.addEventListener('drop', drop);
     window.addEventListener('dragend', reset);
     window.addEventListener('blur', reset);
+    document.addEventListener('dragstart', preventNativeImageDrag, true);
     return () => {
-      window.removeEventListener('dragenter', enter);
-      window.removeEventListener('dragleave', leave);
       window.removeEventListener('dragover', over);
       window.removeEventListener('drop', drop);
       window.removeEventListener('dragend', reset);
       window.removeEventListener('blur', reset);
+      document.removeEventListener('dragstart', preventNativeImageDrag, true);
+      reset();
     };
   }, []);
 
