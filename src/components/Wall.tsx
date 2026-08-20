@@ -10,6 +10,7 @@ type NewElement = 'link' | 'text' | 'callout' | 'html';
 type CardSize = Item['display_size'];
 type TextStyle = Item['text_style'];
 type AiSuggestion = { itemId: string; title: string; description: string; collections: string[] };
+type AiMode = 'auto' | 'ask' | 'off';
 
 export default function Wall({ initialCollections, initialItems }: Props) {
   const [collections, setCollections] = useState(initialCollections);
@@ -29,6 +30,8 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [newElement, setNewElement] = useState<NewElement | null>(null);
   const [aiQueue, setAiQueue] = useState<AiSuggestion[]>([]);
   const [aiRunning, setAiRunning] = useState<string[]>([]);
+  const [aiMode, setAiMode] = useState<AiMode>('ask');
+  const [aiMenu, setAiMenu] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -41,6 +44,18 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     setToast({ msg, undo });
     setTimeout(() => setToast(null), undo ? 6000 : 2200);
   }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('embeddd:ai-mode') as AiMode | null;
+    if (saved === 'auto' || saved === 'ask' || saved === 'off') setAiMode(saved);
+  }, []);
+
+  function chooseAiMode(mode: AiMode) {
+    setAiMode(mode);
+    setAiMenu(false);
+    localStorage.setItem('embeddd:ai-mode', mode);
+    say(mode === 'auto' ? 'ИИ будет размещать сам' : mode === 'off' ? 'Автоматический ИИ выключен' : 'ИИ будет спрашивать');
+  }
 
   /* ---------------- данные ---------------- */
 
@@ -186,7 +201,27 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     say('Карточки удалены');
   }
 
-  async function analyzeImage(item: Item) {
+  async function placeAutomatically(item: Item, result: Omit<AiSuggestion, 'itemId'>) {
+    const existingOption = result.collections.find((name) => collections.some((c) => c.name.toLocaleLowerCase() === name.toLocaleLowerCase()));
+    const collectionName = existingOption || result.collections[0];
+    let collection = collections.find((c) => c.name.toLocaleLowerCase() === collectionName.toLocaleLowerCase());
+    if (!collection) {
+      const colors = ['#C6F04A', '#FFB86B', '#87CEEB', '#D6B4FC', '#FF8F8F'];
+      const res = await fetch('/api/collections', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: collectionName, color: colors[collections.length % colors.length] }),
+      });
+      if (res.ok) {
+        collection = await res.json();
+        setCollections((p) => p.some((c) => c.id === collection!.id) ? p : [...p, collection!]);
+      }
+    }
+    await patch(item.id, { title: result.title, note: result.description, collectionId: collection?.id || null });
+    say(collection ? `ИИ разместил в «${collection.name}»` : 'ИИ назвал карточку');
+  }
+
+  async function analyzeImage(item: Item, manual = false) {
+    if (!manual && aiMode === 'off') return;
     if (aiRunning.includes(item.id)) return;
     setAiRunning((p) => [...p, item.id]);
     try {
@@ -197,8 +232,11 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       });
       const result = await res.json();
       if (!res.ok) return say(result.error || 'ИИ-анализ не сработал');
-      await patch(item.id, { title: result.title });
-      setAiQueue((p) => [...p, { itemId: item.id, ...result }]);
+      if (!manual && aiMode === 'auto') await placeAutomatically(item, result);
+      else {
+        await patch(item.id, { title: result.title });
+        setAiQueue((p) => [...p, { itemId: item.id, ...result }]);
+      }
     } catch {
       say('Не удалось связаться с ИИ');
     } finally {
@@ -259,7 +297,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         });
         const real: Item = await res.json();
         setItems((p) => [real, ...p]);
-        if (!isVideo) void analyzeImage(real);
+        if (!isVideo && aiMode !== 'off') void analyzeImage(real);
       } catch {
         say('Файл не загрузился: ' + file.name);
       }
@@ -384,7 +422,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       if (/^https?:\/\/|^www\./i.test(txt)) { e.preventDefault(); addLink(txt); }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setLightbox(null); setNewElement(null); setElementMenu(false); }
+      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setLightbox(null); setNewElement(null); setElementMenu(false); setAiMenu(false); }
     };
     document.addEventListener('paste', onPaste);
     document.addEventListener('keydown', onKey);
@@ -453,6 +491,19 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           <div className="title-wrap">
             <h1>{title}</h1>
             <p>{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
+          </div>
+          <div className="ai-control">
+            <button className={'ai-mode-button mode-' + aiMode} aria-expanded={aiMenu} onClick={() => setAiMenu((v) => !v)}>
+              <span>AI</span>{aiMode === 'auto' ? 'Размещает сам' : aiMode === 'ask' ? 'Спрашивает' : 'Выключен'}
+            </button>
+            {aiMenu && <>
+              <button className="menu-shield" aria-label="Закрыть меню ИИ" onClick={() => setAiMenu(false)} />
+              <div className="ai-mode-menu">
+                <button className={aiMode === 'auto' ? 'on' : ''} onClick={() => chooseAiMode('auto')}><b>Размещай сам</b><small>Назвать и сразу разложить по коллекциям</small></button>
+                <button className={aiMode === 'ask' ? 'on' : ''} onClick={() => chooseAiMode('ask')}><b>Спрашивай</b><small>Показывать три варианта перед размещением</small></button>
+                <button className={aiMode === 'off' ? 'on danger' : 'danger'} onClick={() => chooseAiMode('off')}><b>Выключить ИИ</b><small>Не анализировать новые изображения</small></button>
+              </div>
+            </>}
           </div>
           <div className="add-element">
             {!!aiRunning.length && <span className="ai-status"><i /> ИИ смотрит {aiRunning.length > 1 ? aiRunning.length : ''}</span>}
@@ -675,7 +726,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         </button>
 
         <div className="tools">
-          {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); analyzeImage(item); }}>{aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
+          {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); analyzeImage(item, true); }}>{aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
           <button className="size-tool" aria-label="Изменить размер" title="Изменить размер" onClick={(e) => { e.stopPropagation(); const sizes: CardSize[] = ['XS', 'S', 'M', 'L', 'XL']; patch(item.id, { displaySize: sizes[(sizes.indexOf(size) + 1) % sizes.length] }); }}>{size}</button>
           {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
           <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); setEditing(item); }}>✎</button>

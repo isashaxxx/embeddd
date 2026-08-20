@@ -93,7 +93,18 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .btn.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
 .btn.lime{background:var(--accent);color:var(--accent-ink)}
 .menu-btn{display:none}
-.add-element{position:relative;margin-left:auto;z-index:8}
+.ai-control{position:relative;margin-left:auto;z-index:8}
+.ai-mode-button{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.62);color:var(--muted);font-size:11px;white-space:nowrap}
+.ai-mode-button span{font-family:var(--font-mono),monospace;font-weight:750;font-size:9px;color:var(--ink);padding:3px 5px;border-radius:5px;background:var(--accent)}
+.ai-mode-button.mode-off span{background:var(--line);color:var(--muted)}
+.ai-mode-menu{position:absolute;z-index:7;right:0;top:calc(100% + 9px);width:300px;padding:7px;background:var(--panel);border:1px solid var(--line-soft);border-radius:14px;box-shadow:0 22px 60px rgba(20,20,15,.18)}
+.ai-mode-menu button{position:relative;width:100%;padding:10px 11px 10px 34px;border-radius:9px;text-align:left}
+.ai-mode-menu button:hover{background:var(--bg)}
+.ai-mode-menu button.on::before{content:'✓';position:absolute;left:11px;top:12px;color:var(--ink);font-weight:700}
+.ai-mode-menu b{display:block;font-size:13px;font-weight:600}
+.ai-mode-menu small{display:block;margin-top:3px;color:var(--muted);font-size:11px;line-height:1.35}
+.ai-mode-menu .danger b{color:var(--danger)}
+.add-element{position:relative;z-index:8}
 .ai-status{position:absolute;right:calc(100% + 12px);top:50%;transform:translateY(-50%);white-space:nowrap;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:6px}
 .ai-status i,.ai-kicker i{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px rgba(198,240,74,.22);animation:ai-pulse 1.1s ease-in-out infinite}
 @keyframes ai-pulse{50%{opacity:.35;transform:scale(.7)}}
@@ -323,6 +334,8 @@ button{cursor:pointer;border:none;background:none;padding:0}
   .title-wrap{flex:1}
   .scroll{padding:14px 14px 90px}
   .element-menu{position:fixed;left:14px;right:14px;top:70px;width:auto;max-height:calc(100vh - 90px);overflow:auto}
+  .ai-mode-button{font-size:0;gap:0}
+  .ai-mode-menu{position:fixed;left:14px;right:14px;top:70px;width:auto}
   .selection-bar{left:50%;max-width:calc(100vw - 20px);overflow-x:auto}
 }
 @media (hover:none){
