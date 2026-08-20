@@ -27,6 +27,8 @@ create table if not exists items (
   r2_thumb_key  text,
   title         text default '',
   note          text default '',
+  display_size  text not null default 'M',
+  text_style    text not null default 'p',
   created_at    timestamptz not null default now()
 );
 

@@ -25,5 +25,7 @@ export type Item = {
   r2_thumb_key: string | null;
   title: string;
   note: string;
+  display_size: 'XS' | 'S' | 'M' | 'L' | 'XL';
+  text_style: 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5';
   created_at?: string;
 };

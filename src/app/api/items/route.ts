@@ -38,8 +38,9 @@ export async function POST(req: Request) {
     const title = String(body.block.title || '').slice(0, 500);
     const note = String(body.block.note || '').slice(0, 100000);
     await sql`
-      insert into items (id, collection_id, kind, provider, position, embed_h, title, note)
-      values (${id}, ${collectionId}, ${kind}, 'block', ${position}, ${kind === 'html' ? 280 : null}, ${title}, ${note})`;
+      insert into items (id, collection_id, kind, provider, position, embed_h, title, note, display_size, text_style)
+      values (${id}, ${collectionId}, ${kind}, 'block', ${position}, ${kind === 'html' ? 280 : null}, ${title}, ${note},
+              ${String(body.block.displaySize || 'M')}, ${String(body.block.textStyle || 'p')})`;
     return NextResponse.json(await one(id));
   }
 

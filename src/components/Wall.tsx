@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import type { Collection, Item } from '@/lib/types';
 import { shrink, videoSize } from '@/lib/resize';
 
 type Props = { initialCollections: Collection[]; initialItems: Item[] };
 type Active = 'all' | 'fav' | string;
-type NewElement = 'link' | 'text' | 'heading' | 'callout' | 'html';
+type NewElement = 'link' | 'text' | 'callout' | 'html';
+type CardSize = Item['display_size'];
+type TextStyle = Item['text_style'];
 type AiSuggestion = { itemId: string; title: string; description: string; collections: string[] };
 
 export default function Wall({ initialCollections, initialItems }: Props) {
@@ -27,9 +29,12 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [newElement, setNewElement] = useState<NewElement | null>(null);
   const [aiQueue, setAiQueue] = useState<AiSuggestion[]>([]);
   const [aiRunning, setAiRunning] = useState<string[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
+  const selectionBoxRef = useRef<HTMLDivElement>(null);
+  const selectionIdsRef = useRef<Set<string>>(new Set());
 
   const say = useCallback((msg: string, undo?: () => void) => {
     setToast({ msg, undo });
@@ -53,7 +58,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       id: tempId, collection_id: targetCollection(), kind: 'link', provider: null,
       position: -Infinity, fav: false, url, host: safeHost(url), embed_url: null, embed_h: null,
       ratio: null, src: null, thumb: null, width: null, height: null, r2_key: null,
-      r2_thumb_key: null, title: safeHost(url), note: '',
+      r2_thumb_key: null, title: safeHost(url), note: '', display_size: 'M', text_style: 'p',
     };
     setItems((p) => [optimistic, ...p]);
 
@@ -71,16 +76,74 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     setItems((p) => p.map((i) => (i.id === tempId ? real : i)));
   }
 
-  async function addBlock(kind: Exclude<NewElement, 'link'> | 'divider', title = '', note = '') {
+  async function addBlock(kind: Exclude<NewElement, 'link'>, title = '', note = '', textStyle: TextStyle = 'p') {
     const res = await fetch('/api/items', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ block: { kind, title, note }, collectionId: targetCollection() }),
+      body: JSON.stringify({ block: { kind, title, note, textStyle }, collectionId: targetCollection() }),
     });
     if (!res.ok) return say('Блок не создался');
     const item: Item = await res.json();
     setItems((p) => [item, ...p]);
     setNewElement(null);
+  }
+
+  function startSelection(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('.card, button, input, textarea, select, a')) return;
+    const startX = e.clientX, startY = e.clientY;
+    const box = selectionBoxRef.current!;
+    selectionIdsRef.current = new Set();
+    setSelected(new Set());
+    box.style.display = 'block';
+    box.style.left = startX + 'px'; box.style.top = startY + 'px';
+    box.style.width = '0px'; box.style.height = '0px';
+
+    const move = (ev: PointerEvent) => {
+      const left = Math.min(startX, ev.clientX), top = Math.min(startY, ev.clientY);
+      const right = Math.max(startX, ev.clientX), bottom = Math.max(startY, ev.clientY);
+      box.style.left = left + 'px'; box.style.top = top + 'px';
+      box.style.width = right - left + 'px'; box.style.height = bottom - top + 'px';
+      const hits = new Set<string>();
+      document.querySelectorAll<HTMLElement>('[data-card-id]').forEach((card) => {
+        const r = card.getBoundingClientRect();
+        const hit = r.left < right && r.right > left && r.top < bottom && r.bottom > top;
+        card.classList.toggle('selecting', hit);
+        if (hit) hits.add(card.dataset.cardId!);
+      });
+      selectionIdsRef.current = hits;
+    };
+    const up = () => {
+      box.style.display = 'none';
+      document.querySelectorAll('.card.selecting').forEach((card) => card.classList.remove('selecting'));
+      setSelected(new Set(selectionIdsRef.current));
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, { once: true });
+  }
+
+  function resizeSelected(size: CardSize) {
+    const ids = [...selected];
+    setItems((p) => p.map((item) => ids.includes(item.id) ? { ...item, display_size: size } : item));
+    ids.forEach((id) => fetch(`/api/items/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displaySize: size }) }));
+  }
+
+  function moveSelected(collectionId: string) {
+    if (collectionId === '__none__') collectionId = '';
+    const ids = [...selected];
+    setItems((p) => p.map((item) => ids.includes(item.id) ? { ...item, collection_id: collectionId || null } : item));
+    ids.forEach((id) => fetch(`/api/items/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collectionId: collectionId || null }) }));
+    setSelected(new Set());
+  }
+
+  async function deleteSelected() {
+    const ids = [...selected];
+    if (!ids.length || !confirm(`Удалить выбранные карточки (${ids.length})?`)) return;
+    setItems((p) => p.filter((item) => !selected.has(item.id)));
+    setSelected(new Set());
+    await Promise.all(ids.map((id) => fetch(`/api/items/${id}`, { method: 'DELETE' })));
+    say('Карточки удалены');
   }
 
   async function analyzeImage(item: Item) {
@@ -362,10 +425,8 @@ export default function Wall({ initialCollections, initialItems }: Props) {
                 <button onClick={() => { setElementMenu(false); setNewElement('link'); }}><b>↗</b><span>Ссылка / Embed<small>YouTube, Pinterest и сайты</small></span></button>
                 <i />
                 <button onClick={() => { setElementMenu(false); setNewElement('text'); }}><b>T</b><span>Текст<small>Заметка или описание</small></span></button>
-                <button onClick={() => { setElementMenu(false); setNewElement('heading'); }}><b>H</b><span>Заголовок<small>Разделить идеи на смысловые блоки</small></span></button>
                 <button onClick={() => { setElementMenu(false); setNewElement('callout'); }}><b>◉</b><span>Callout<small>Акцент с эмодзи</small></span></button>
                 <button onClick={() => { setElementMenu(false); setNewElement('html'); }}><b>&lt;/&gt;</b><span>HTML<small>Свой код в изолированном блоке</small></span></button>
-                <button onClick={() => { setElementMenu(false); addBlock('divider'); }}><b>—</b><span>Разделитель<small>Тонкая визуальная пауза</small></span></button>
               </div>
             </>}
           </div>
@@ -373,7 +434,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
             onChange={(e) => { addFiles([...(e.target.files || [])]); e.target.value = ''; }} />
         </header>
 
-        <div className="scroll">
+        <div className="scroll" onPointerDown={startSelection}>
           <div className="grid">
             {visible.map((it) => (
               <Card key={it.id} item={it} />
@@ -389,7 +450,23 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         </div>
 
         <div className={'dropzone' + (dropping ? ' on' : '')}>Отпусти — положу на стену</div>
+        <div ref={selectionBoxRef} className="selection-box" />
       </main>
+
+      {!!selected.size && <div className="selection-bar">
+        <b>{selected.size}</b><span>выбрано</span>
+        <i />
+        <span>Размер</span>
+        {(['XS', 'S', 'M', 'L', 'XL'] as CardSize[]).map((size) => <button key={size} onClick={() => resizeSelected(size)}>{size}</button>)}
+        <i />
+        <select aria-label="Переместить выбранные" defaultValue="" onChange={(e) => moveSelected(e.target.value)}>
+          <option value="" disabled>В коллекцию...</option>
+          <option value="__none__">Без коллекции</option>
+          {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <button className="selection-delete" onClick={deleteSelected}>Удалить</button>
+        <button aria-label="Снять выделение" onClick={() => setSelected(new Set())}>×</button>
+      </div>}
 
       {editing && <EditModal item={editing} />}
       {collModal && <CollModal />}
@@ -443,12 +520,29 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const [playing, setPlaying] = useState(false);
     const [edge, setEdge] = useState<'' | 'before' | 'after'>('');
     const boxRef = useRef<HTMLDivElement>(null);
+    const cardRef = useRef<HTMLDivElement>(null);
+    const [rowSpan, setRowSpan] = useState(20);
 
     const isMedia = item.kind === 'image' || item.kind === 'video';
+    const size = item.display_size || 'M';
+    const widthSpan: Record<CardSize, number> = { XS: 2, S: 3, M: 4, L: 6, XL: 8 };
+
+    useEffect(() => {
+      const node = cardRef.current;
+      if (!node) return;
+      const measure = () => setRowSpan(Math.max(4, Math.ceil((node.getBoundingClientRect().height + 10) / 10)));
+      const observer = new ResizeObserver(measure);
+      observer.observe(node); measure();
+      return () => observer.disconnect();
+    }, []);
 
     return (
       <div
-        className={'card' + (edge ? ` insert-${edge}` : '')}
+        ref={cardRef}
+        data-card-id={item.id}
+        data-size={size}
+        className={'card size-' + size.toLowerCase() + (selected.has(item.id) ? ' selected' : '') + (edge ? ` insert-${edge}` : '')}
+        style={{ gridColumn: `span ${widthSpan[size]}`, gridRowEnd: `span ${rowSpan}` }}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move';
@@ -479,6 +573,11 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         }}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('button, iframe, video, .resize')) return;
+          if (e.metaKey || e.ctrlKey || e.shiftKey || selected.size) {
+            e.stopPropagation();
+            setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; });
+            return;
+          }
           if (isMedia) setLightbox(item.id);
           else if (item.url) window.open(item.url, '_blank', 'noopener');
         }}
@@ -526,8 +625,8 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           )
         )}
 
-        {item.kind === 'text' && <div className="content-block text-block">{item.note}</div>}
-        {item.kind === 'heading' && <div className="content-block heading-block">{item.note || item.title}</div>}
+        {item.kind === 'text' && createElement(item.text_style === 'p' || !item.text_style ? 'p' : item.text_style, { className: `content-block text-block text-${item.text_style || 'p'}` }, item.note)}
+        {item.kind === 'heading' && <h2 className="content-block text-block text-h2">{item.note || item.title}</h2>}
         {item.kind === 'callout' && <div className="content-block callout-block"><span>{item.title || '💡'}</span><p>{item.note}</p></div>}
         {item.kind === 'html' && <div ref={boxRef} className="html-block" style={{ height: (item.embed_h || 280) + 'px' }}><iframe title="HTML-блок" sandbox="allow-scripts" srcDoc={item.note} /></div>}
         {item.kind === 'divider' && <div className="divider-block"><i /></div>}
@@ -549,6 +648,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
         <div className="tools">
           {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); analyzeImage(item); }}>{aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
+          <button className="size-tool" aria-label="Изменить размер" title="Изменить размер" onClick={(e) => { e.stopPropagation(); const sizes: CardSize[] = ['XS', 'S', 'M', 'L', 'XL']; patch(item.id, { displaySize: sizes[(sizes.indexOf(size) + 1) % sizes.length] }); }}>{size}</button>
           {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
           <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); setEditing(item); }}>✎</button>
           <button className="del" aria-label="Удалить карточку" onClick={(e) => { e.stopPropagation(); remove(item); }}>×</button>
@@ -578,17 +678,21 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   function NewElementModal({ kind }: { kind: NewElement }) {
     const [value, setValue] = useState('');
     const [icon, setIcon] = useState('💡');
-    const names: Record<NewElement, string> = { link: 'Ссылка / Embed', text: 'Текст', heading: 'Заголовок', callout: 'Callout', html: 'HTML' };
+    const [textStyle, setTextStyle] = useState<TextStyle>('p');
+    const names: Record<NewElement, string> = { link: 'Ссылка / Embed', text: 'Текст', callout: 'Callout', html: 'HTML' };
     const submit = () => {
       if (!value.trim()) return;
       if (kind === 'link') { addLink(value.trim()); setNewElement(null); return; }
-      addBlock(kind, kind === 'callout' ? icon : '', value);
+      addBlock(kind, kind === 'callout' ? icon : '', value, kind === 'text' ? textStyle : 'p');
     };
     return (
       <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setNewElement(null); }}>
         <div className="modal element-modal">
           <h3>{names[kind]}</h3>
           {kind === 'callout' && <div className="field icon-field"><label>Иконка</label><input value={icon} maxLength={4} onChange={(e) => setIcon(e.target.value)} /></div>}
+          {kind === 'text' && <div className="field"><label>Стиль текста</label><div className="text-style-picker">
+            {(['p', 'h1', 'h2', 'h3', 'h4', 'h5'] as TextStyle[]).map((style) => <button key={style} className={textStyle === style ? 'on' : ''} onClick={() => setTextStyle(style)}>{style === 'p' ? 'Текст' : style.toUpperCase()}</button>)}
+          </div></div>}
           <div className="field"><label>{kind === 'link' ? 'URL' : kind === 'html' ? 'Код' : 'Содержание'}</label>
             {kind === 'link' ? <input value={value} autoFocus placeholder="https://…" onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
               : <textarea value={value} autoFocus rows={kind === 'html' ? 10 : 5} placeholder={kind === 'html' ? '<div>…</div>' : 'Начни писать…'} onChange={(e) => setValue(e.target.value)} />}
@@ -649,6 +753,8 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const [t, setT] = useState(item.title || '');
     const [n, setN] = useState(item.note || '');
     const [c, setC] = useState(item.collection_id || '');
+    const [size, setSize] = useState<CardSize>(item.display_size || 'M');
+    const [textStyle, setTextStyle] = useState<TextStyle>(item.text_style || 'p');
 
     return (
       <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
@@ -663,9 +769,15 @@ export default function Wall({ initialCollections, initialItems }: Props) {
               <option value="">— без коллекции —</option>
               {collections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select></div>
+          <div className="field"><label>Размер карточки</label><div className="text-style-picker">
+            {(['XS', 'S', 'M', 'L', 'XL'] as CardSize[]).map((value) => <button key={value} className={size === value ? 'on' : ''} onClick={() => setSize(value)}>{value}</button>)}
+          </div></div>
+          {item.kind === 'text' && <div className="field"><label>Стиль текста</label><div className="text-style-picker">
+            {(['p', 'h1', 'h2', 'h3', 'h4', 'h5'] as TextStyle[]).map((value) => <button key={value} className={textStyle === value ? 'on' : ''} onClick={() => setTextStyle(value)}>{value === 'p' ? 'Текст' : value.toUpperCase()}</button>)}
+          </div></div>}
           <div className="modal-foot">
             <button className="btn ghost" onClick={() => setEditing(null)}>Отмена</button>
-            <button className="btn" onClick={() => { patch(item.id, { title: t, note: n, collectionId: c || null }); setEditing(null); }}>Сохранить</button>
+            <button className="btn" onClick={() => { patch(item.id, { title: t, note: n, collectionId: c || null, displaySize: size, textStyle }); setEditing(null); }}>Сохранить</button>
           </div>
         </div>
       </div>
@@ -745,7 +857,7 @@ function safeHost(url: string) {
 }
 
 function camelToSnake(data: Record<string, unknown>) {
-  const map: Record<string, string> = { collectionId: 'collection_id', embedH: 'embed_h' };
+  const map: Record<string, string> = { collectionId: 'collection_id', embedH: 'embed_h', displaySize: 'display_size', textStyle: 'text_style' };
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) out[map[k] ?? k] = v;
   return out;
