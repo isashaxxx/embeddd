@@ -23,7 +23,8 @@ export async function GET() {
       (select count(*)::int from items) as items,
       (select count(*)::int from collections) as collections,
       (select count(*)::int from items where cardinality(tags) > 0) as tagged,
-      (select visits from user_stats where id = 'main') as visits` as unknown as Record<string, number>[];
+      (select visits from user_stats where id = 'main') as visits,
+      (select ai_credits from user_stats where id = 'main') as ai_credits` as unknown as Record<string, number>[];
   const before = await sql`select key, unlocked_at from achievements` as unknown as { key: string; unlocked_at: string }[];
   const beforeKeys = new Set(before.map((row) => row.key));
 
@@ -47,6 +48,7 @@ export async function GET() {
 
   return NextResponse.json({
     xp,
+    aiCredits: Number(counts.ai_credits || 0),
     level,
     nextLevelXp,
     achievements,

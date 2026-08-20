@@ -375,6 +375,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         body: JSON.stringify({ imageUrl: item.src || item.thumb, existingCollections: collections.map((c) => c.name) }),
       });
       const result = await res.json();
+      if (typeof result.creditsRemaining === 'number') setProgress((current) => current ? { ...current, aiCredits: result.creditsRemaining } : current);
       if (!res.ok) return say(result.error || 'ИИ-анализ не сработал');
       await placeAutomatically(item, result);
     } catch {
@@ -689,7 +690,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           <button className={'icon-control move-toggle' + (moveMode ? ' on' : '')} title={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-label={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-pressed={moveMode}
             onClick={() => setMoveMode((value) => !value)}><Icon name={moveMode ? 'check' : 'move'} /></button>
           <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'}
-            title={aiMode === 'auto' ? 'ИИ включён' : 'ИИ выключен'} aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span></button>
+            aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span><small className="ai-credit-tooltip">Осталось {progress?.aiCredits ?? '…'} кредитов</small></button>
           <div className="add-element">
             {!!aiRunning.length && <span className="ai-status" aria-label="ИИ анализирует" title="ИИ анализирует"><i /></span>}
             <button className="btn lime" aria-expanded={elementMenu} onClick={() => setElementMenu((v) => !v)}>＋ Элемент</button>

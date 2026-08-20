@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -14,6 +15,11 @@ export async function POST(req: Request) {
   const existing = Array.isArray(body.existingCollections)
     ? body.existingCollections.map(String).slice(0, 100)
     : [];
+
+  const sql = db();
+  await sql`insert into user_stats (id, visits, last_visit, ai_credits) values ('main', 0, null, 100) on conflict (id) do nothing`;
+  const reserved = await sql`update user_stats set ai_credits = ai_credits - 1 where id = 'main' and ai_credits > 0 returning ai_credits` as unknown as { ai_credits: number }[];
+  if (!reserved.length) return NextResponse.json({ error: 'AI-кредиты закончились', creditsRemaining: 0 }, { status: 402 });
 
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
@@ -52,12 +58,18 @@ export async function POST(req: Request) {
       },
       max_output_tokens: 420,
     }),
+  }).catch(async () => {
+    await sql`update user_stats set ai_credits = ai_credits + 1 where id = 'main'`;
+    return null;
   });
+
+  if (!response) return NextResponse.json({ error: 'Не удалось связаться с OpenAI', creditsRemaining: Number(reserved[0].ai_credits) + 1 }, { status: 502 });
 
   const result = await response.json();
   if (!response.ok) {
+    await sql`update user_stats set ai_credits = ai_credits + 1 where id = 'main'`;
     const message = result?.error?.message || 'OpenAI не смог проанализировать изображение';
-    return NextResponse.json({ error: message }, { status: response.status });
+    return NextResponse.json({ error: message, creditsRemaining: Number(reserved[0].ai_credits) + 1 }, { status: response.status });
   }
 
   const outputText = result.output
@@ -66,8 +78,9 @@ export async function POST(req: Request) {
 
   try {
     const parsed = JSON.parse(outputText || '');
-    return NextResponse.json(parsed);
+    return NextResponse.json({ ...parsed, creditsRemaining: Number(reserved[0].ai_credits) });
   } catch {
-    return NextResponse.json({ error: 'ИИ вернул ответ в неожиданном формате' }, { status: 502 });
+    await sql`update user_stats set ai_credits = ai_credits + 1 where id = 'main'`;
+    return NextResponse.json({ error: 'ИИ вернул ответ в неожиданном формате', creditsRemaining: Number(reserved[0].ai_credits) + 1 }, { status: 502 });
   }
 }

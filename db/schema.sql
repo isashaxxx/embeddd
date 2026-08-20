@@ -55,7 +55,8 @@ create table if not exists achievements (
 create table if not exists user_stats (
   id         text primary key,
   visits     integer not null default 0,
-  last_visit date
+  last_visit date,
+  ai_credits integer not null default 100
 );
 
 -- `create table if not exists` не расширяет уже существующую таблицу.
@@ -63,6 +64,7 @@ alter table collections add column if not exists project_id text references proj
 alter table projects add column if not exists slug text;
 alter table collections add column if not exists slug text;
 alter table items add column if not exists slug text;
+alter table user_stats add column if not exists ai_credits integer not null default 100;
 update projects set slug = id where slug is null;
 update collections set slug = id where slug is null;
 update items set slug = id where slug is null;

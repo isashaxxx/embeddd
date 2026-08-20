@@ -53,6 +53,7 @@ export type Achievement = {
 
 export type Progress = {
   xp: number;
+  aiCredits: number;
   level: number;
   nextLevelXp: number;
   achievements: Achievement[];
