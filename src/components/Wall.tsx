@@ -757,6 +757,129 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   const title = active === 'all' ? (activeProject === 'all' ? 'Всё' : projects.find((project) => project.id === activeProject)?.name || 'Всё') : active === 'fav' ? 'Избранное' : collections.find((c) => c.id === active)?.name ?? 'Всё';
 
+  const cardRuntime = useRef({ selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, moveMode });
+  cardRuntime.current = { selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, moveMode };
+
+  // Keep the component type stable across Wall renders. Defining a regular
+  // nested component here caused React to remount every video whenever account,
+  // progress or grid state changed, making posters flash and media reload.
+  const Card = useRef(function StableCard({ item }: { item: Item }) {
+    const runtime = cardRuntime.current;
+    const [playing, setPlaying] = useState(false);
+    const boxRef = useRef<HTMLDivElement>(null);
+
+    const isMedia = item.kind === 'image' || item.kind === 'video';
+    const size = elementSize(item.display_size);
+    const crop = pinCrop(item);
+    return (
+      <div
+        className={`card ${isBlock(item) ? 'block-card' : 'pin-card'}${runtime.selected.has(item.id) ? ' selected' : ''}`}
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest('button, iframe, .resize')) return;
+          if (e.metaKey || e.ctrlKey || e.shiftKey || runtime.selected.size) {
+            e.stopPropagation();
+            runtime.setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; });
+            return;
+          }
+          if (isMedia) runtime.setLightbox(item.id);
+          else if (item.url) window.open(item.url, '_blank', 'noopener');
+        }}
+      >
+        {item.kind === 'image' && (
+          <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb || item.src || ''} alt=""
+            style={item.width && item.height ? { aspectRatio: `${item.width}/${item.height}` } : undefined} />
+        )}
+
+        {item.kind === 'video' && <AutoVideo className={`media crop-${crop}`} src={item.src || ''} poster={item.thumb && item.thumb !== item.src ? item.thumb : undefined} />}
+
+        {item.kind === 'embed' && (
+          <div ref={boxRef} className="embed-box"
+            style={item.ratio ? { aspectRatio: `${(100 / item.ratio).toFixed(4)}` } : { height: (item.embed_h || 480) + 'px' }}>
+            {item.thumb && !playing ? (
+              <>
+                <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb} alt=""
+                  style={{ position: 'absolute', inset: 0, height: '100%', objectFit: 'cover' }} />
+                <button className="play" onClick={(e) => { e.stopPropagation(); setPlaying(true); }}><i /></button>
+              </>
+            ) : (
+              <iframe src={item.embed_url || ''} loading="lazy"
+                allow="autoplay; encrypted-media; picture-in-picture; clipboard-write" allowFullScreen />
+            )}
+          </div>
+        )}
+
+        {item.kind === 'link' && (
+          item.thumb ? (
+            <>
+              <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb} alt="" />
+              <div className="meta">
+                <div className="meta-txt">
+                  <div className="t">{item.title || item.host}</div>
+                  <div className="n">{item.host}</div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="link-card">
+              <img className="fav" draggable={false} alt="" src={`https://www.google.com/s2/favicons?domain=${item.host}&sz=64`} />
+              <h4>{item.title || item.host}</h4>
+              <div className="host">{item.host}</div>
+            </div>
+          )
+        )}
+
+        {item.kind === 'text' && createElement(item.text_style === 'p' || !item.text_style ? 'p' : item.text_style, { className: `content-block text-block text-${item.text_style || 'p'}` }, item.note)}
+        {item.kind === 'heading' && <h2 className="content-block text-block text-h2">{item.note || item.title}</h2>}
+        {item.kind === 'callout' && <div className="content-block callout-block"><span>{item.title || '💡'}</span><p>{item.note}</p></div>}
+        {item.kind === 'html' && <div ref={boxRef} className="html-block" style={{ height: (item.embed_h || 280) + 'px' }}><iframe title="HTML-блок" sandbox="allow-scripts" srcDoc={item.note} /></div>}
+        {item.kind === 'divider' && <div className="divider-block"><i /></div>}
+
+        {['image', 'video', 'embed'].includes(item.kind) && (item.title || item.note) && (
+          <div className="meta">
+            <div className="meta-txt">
+              {item.title && <div className="t">{item.title}</div>}
+              {item.note && <div className="n">{item.note}</div>}
+            </div>
+            {item.provider && item.provider !== 'local' && <span className="chip">{item.provider}</span>}
+          </div>
+        )}
+
+        <button className={'star' + (item.fav ? ' on' : '')} aria-label={item.fav ? 'Убрать из избранного' : 'Добавить в избранное'}
+          onClick={(e) => { e.stopPropagation(); runtime.patch(item.id, { fav: !item.fav }); }}>
+          {item.fav ? '★' : '☆'}
+        </button>
+
+        <div className="tools">
+          {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={runtime.aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); runtime.analyzeImage(item, true); }}>{runtime.aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
+          {isBlock(item) && <select className="size-select" aria-label="Размер элемента" title="Размер элемента" value={size} onClick={(e) => e.stopPropagation()} onChange={(e) => runtime.patch(item.id, { displaySize: e.target.value as ElementSize })}>
+            <option value="S">S</option><option value="M">M</option><option value="L">L</option>
+          </select>}
+          {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
+          <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setEditing(item); }}>✎</button>
+          {item.archived_at ? <button aria-label="Восстановить карточку" title="Восстановить" onClick={(e) => { e.stopPropagation(); void runtime.restoreItem(item); }}><Icon name="restore" /></button> : <button className="del" aria-label="Удалить или архивировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setDisposing(item); }}><Icon name="trash" /></button>}
+        </div>
+
+        {runtime.moveMode && <div className="grip" title="Переместить"><span>⠿</span> Переместить</div>}
+
+        {(item.kind === 'html' || (item.kind === 'embed' && !item.ratio)) && (
+          <div className="resize" onPointerDown={(e) => {
+            e.preventDefault(); e.stopPropagation();
+            const box = boxRef.current!;
+            const startY = e.clientY, startH = box.offsetHeight;
+            const move = (ev: PointerEvent) => { box.style.height = Math.max(140, startH + ev.clientY - startY) + 'px'; };
+            const up = () => {
+              runtime.patch(item.id, { embedH: box.offsetHeight });
+              window.removeEventListener('pointermove', move);
+              window.removeEventListener('pointerup', up);
+            };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+          }} />
+        )}
+      </div>
+    );
+  }).current;
+
   return (
     <div className={'app' + (moveMode ? ' move-mode' : '')}>
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
@@ -943,128 +1066,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     );
   }
 
-  const cardRuntime = useRef({ selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, moveMode });
-  cardRuntime.current = { selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, moveMode };
-
-  // Keep the component type stable across Wall renders. Defining a regular
-  // nested component here caused React to remount every video whenever account,
-  // progress or grid state changed, making posters flash and media reload.
-  const Card = useRef(function StableCard({ item }: { item: Item }) {
-    const runtime = cardRuntime.current;
-    const [playing, setPlaying] = useState(false);
-    const boxRef = useRef<HTMLDivElement>(null);
-
-    const isMedia = item.kind === 'image' || item.kind === 'video';
-    const size = elementSize(item.display_size);
-    const crop = pinCrop(item);
-    return (
-      <div
-        className={`card ${isBlock(item) ? 'block-card' : 'pin-card'}${runtime.selected.has(item.id) ? ' selected' : ''}`}
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest('button, iframe, .resize')) return;
-          if (e.metaKey || e.ctrlKey || e.shiftKey || runtime.selected.size) {
-            e.stopPropagation();
-            runtime.setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; });
-            return;
-          }
-          if (isMedia) runtime.setLightbox(item.id);
-          else if (item.url) window.open(item.url, '_blank', 'noopener');
-        }}
-      >
-        {item.kind === 'image' && (
-          <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb || item.src || ''} alt=""
-            style={item.width && item.height ? { aspectRatio: `${item.width}/${item.height}` } : undefined} />
-        )}
-
-        {item.kind === 'video' && <AutoVideo className={`media crop-${crop}`} src={item.src || ''} poster={item.thumb && item.thumb !== item.src ? item.thumb : undefined} />}
-
-        {item.kind === 'embed' && (
-          <div ref={boxRef} className="embed-box"
-            style={item.ratio ? { aspectRatio: `${(100 / item.ratio).toFixed(4)}` } : { height: (item.embed_h || 480) + 'px' }}>
-            {item.thumb && !playing ? (
-              <>
-                <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb} alt=""
-                  style={{ position: 'absolute', inset: 0, height: '100%', objectFit: 'cover' }} />
-                <button className="play" onClick={(e) => { e.stopPropagation(); setPlaying(true); }}><i /></button>
-              </>
-            ) : (
-              <iframe src={item.embed_url || ''} loading="lazy"
-                allow="autoplay; encrypted-media; picture-in-picture; clipboard-write" allowFullScreen />
-            )}
-          </div>
-        )}
-
-        {item.kind === 'link' && (
-          item.thumb ? (
-            <>
-              <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb} alt="" />
-              <div className="meta">
-                <div className="meta-txt">
-                  <div className="t">{item.title || item.host}</div>
-                  <div className="n">{item.host}</div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="link-card">
-              <img className="fav" draggable={false} alt="" src={`https://www.google.com/s2/favicons?domain=${item.host}&sz=64`} />
-              <h4>{item.title || item.host}</h4>
-              <div className="host">{item.host}</div>
-            </div>
-          )
-        )}
-
-        {item.kind === 'text' && createElement(item.text_style === 'p' || !item.text_style ? 'p' : item.text_style, { className: `content-block text-block text-${item.text_style || 'p'}` }, item.note)}
-        {item.kind === 'heading' && <h2 className="content-block text-block text-h2">{item.note || item.title}</h2>}
-        {item.kind === 'callout' && <div className="content-block callout-block"><span>{item.title || '💡'}</span><p>{item.note}</p></div>}
-        {item.kind === 'html' && <div ref={boxRef} className="html-block" style={{ height: (item.embed_h || 280) + 'px' }}><iframe title="HTML-блок" sandbox="allow-scripts" srcDoc={item.note} /></div>}
-        {item.kind === 'divider' && <div className="divider-block"><i /></div>}
-
-        {['image', 'video', 'embed'].includes(item.kind) && (item.title || item.note) && (
-          <div className="meta">
-            <div className="meta-txt">
-              {item.title && <div className="t">{item.title}</div>}
-              {item.note && <div className="n">{item.note}</div>}
-            </div>
-            {item.provider && item.provider !== 'local' && <span className="chip">{item.provider}</span>}
-          </div>
-        )}
-
-        <button className={'star' + (item.fav ? ' on' : '')} aria-label={item.fav ? 'Убрать из избранного' : 'Добавить в избранное'}
-          onClick={(e) => { e.stopPropagation(); runtime.patch(item.id, { fav: !item.fav }); }}>
-          {item.fav ? '★' : '☆'}
-        </button>
-
-        <div className="tools">
-          {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={runtime.aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); runtime.analyzeImage(item, true); }}>{runtime.aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
-          {isBlock(item) && <select className="size-select" aria-label="Размер элемента" title="Размер элемента" value={size} onClick={(e) => e.stopPropagation()} onChange={(e) => runtime.patch(item.id, { displaySize: e.target.value as ElementSize })}>
-            <option value="S">S</option><option value="M">M</option><option value="L">L</option>
-          </select>}
-          {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
-          <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setEditing(item); }}>✎</button>
-          {item.archived_at ? <button aria-label="Восстановить карточку" title="Восстановить" onClick={(e) => { e.stopPropagation(); void runtime.restoreItem(item); }}><Icon name="restore" /></button> : <button className="del" aria-label="Удалить или архивировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setDisposing(item); }}><Icon name="trash" /></button>}
-        </div>
-
-        {runtime.moveMode && <div className="grip" title="Переместить"><span>⠿</span> Переместить</div>}
-
-        {(item.kind === 'html' || (item.kind === 'embed' && !item.ratio)) && (
-          <div className="resize" onPointerDown={(e) => {
-            e.preventDefault(); e.stopPropagation();
-            const box = boxRef.current!;
-            const startY = e.clientY, startH = box.offsetHeight;
-            const move = (ev: PointerEvent) => { box.style.height = Math.max(140, startH + ev.clientY - startY) + 'px'; };
-            const up = () => {
-              runtime.patch(item.id, { embedH: box.offsetHeight });
-              window.removeEventListener('pointermove', move);
-              window.removeEventListener('pointerup', up);
-            };
-            window.addEventListener('pointermove', move);
-            window.addEventListener('pointerup', up);
-          }} />
-        )}
-      </div>
-    );
-  }).current;
 
   function NewElementModal({ kind }: { kind: NewElement }) {
     const [value, setValue] = useState('');
