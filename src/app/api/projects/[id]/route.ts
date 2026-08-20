@@ -7,11 +7,12 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, { params }: Ctx) {
   const { id } = await params;
-  const { name, color, position } = await req.json();
+  const { name, color, position, coverUrl } = await req.json();
   const sql = db();
   if (name !== undefined) await sql`update projects set name = ${name} where id = ${id}`;
   if (color !== undefined) await sql`update projects set color = ${color} where id = ${id}`;
   if (position !== undefined) await sql`update projects set position = ${position} where id = ${id}`;
+  if (coverUrl !== undefined) await sql`update projects set cover_url = ${coverUrl || null} where id = ${id}`;
   const rows = (await sql`select * from projects where id = ${id}`) as unknown[];
   return NextResponse.json(rows[0] ?? null);
 }

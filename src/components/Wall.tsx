@@ -55,6 +55,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [menuOpen, setMenuOpen] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
   const [newElement, setNewElement] = useState<NewElement | null>(null);
+  const [contentTab, setContentTab] = useState<'all' | 'boards' | 'items'>('all');
   const boardSensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
@@ -66,6 +67,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [gridMetrics, setGridMetrics] = useState({ width: 0, columns: 2 });
   const fileRef = useRef<HTMLInputElement>(null);
   const avatarRef = useRef<HTMLInputElement>(null);
+  const coverRef = useRef<HTMLInputElement>(null);
   const topSearchRef = useRef<HTMLDivElement>(null);
   const dragResetTimer = useRef<number | null>(null);
   const selectionBoxRef = useRef<HTMLDivElement>(null);
@@ -103,6 +105,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     if (!locationReady || initialPost) return;
     localStorage.setItem('embeddd:last-location', JSON.stringify({ active, project: activeProject }));
   }, [active, activeProject, initialPost, locationReady]);
+
+  useEffect(() => { setContentTab('all'); }, [activeProject]);
 
   const say = useCallback((msg: string, undo?: () => void) => {
     setToast({ msg, undo });
@@ -147,10 +151,18 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     return inSection && inProject && (!selectedTag || i.tags?.includes(selectedTag)) && (!search.trim() || haystack.includes(search.trim().toLocaleLowerCase()));
   });
 
+  const currentProject = activeProject === 'all' ? null : projects.find((project) => project.id === activeProject) || null;
+  const projectRootView = activeProject !== 'all' && active === 'all';
+  const projectItemCount = activeProject === 'all' ? 0 : items.filter((item) => !item.archived_at && item.collection_id && projectCollectionIds.has(item.collection_id)).length;
+  const projectCoverThumbs = activeProject === 'all' ? [] : items
+    .filter((item) => !item.archived_at && item.collection_id && projectCollectionIds.has(item.collection_id) && (item.thumb || item.src))
+    .sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0))
+    .slice(0, 4);
+
   const feedEntries: ({ type: 'item'; value: Item } | { type: 'collection'; value: Collection })[] = active === 'all'
     ? [
-        ...visible.map((value) => ({ type: 'item' as const, value })),
-        ...(!selectedTag ? projectCollections.map((value) => ({ type: 'collection' as const, value })) : []),
+        ...(!projectRootView || contentTab !== 'boards' ? visible.map((value) => ({ type: 'item' as const, value })) : []),
+        ...(!selectedTag && (!projectRootView || contentTab !== 'items') ? projectCollections.map((value) => ({ type: 'collection' as const, value })) : []),
       ].sort((a, b) => {
         const aTime = a.value.created_at ? new Date(a.value.created_at).getTime() : a.value.id.startsWith('temp-') ? Date.now() : 0;
         const bTime = b.value.created_at ? new Date(b.value.created_at).getTime() : b.value.id.startsWith('temp-') ? Date.now() : 0;
@@ -766,6 +778,23 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     } catch { say('Не удалось загрузить аватар'); }
   }
 
+  async function uploadProjectCover(file?: File) {
+    if (!file || !file.type.startsWith('image/') || !currentProject) return;
+    const projectId = currentProject.id;
+    try {
+      const resized = await shrink(file, 1600, .86);
+      const signedResponse = await fetch('/api/upload-url', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ext: 'webp', contentType: 'image/webp', withThumb: false }) });
+      const signed = await signedResponse.json();
+      const uploadResponse = await fetch(signed.putUrl, { method: 'PUT', headers: { 'content-type': 'image/webp' }, body: resized.blob });
+      if (!uploadResponse.ok) throw new Error();
+      const response = await fetch(`/api/projects/${projectId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ coverUrl: signed.src }) });
+      if (!response.ok) throw new Error();
+      const project: Project = await response.json();
+      setProjects((p) => p.map((value) => value.id === project.id ? project : value));
+      say('Обложка обновлена');
+    } catch { say('Не удалось загрузить обложку'); }
+  }
+
   async function deleteCollection(c: Collection) {
     // Удаление борда каскадно сносит все его карточки.
     setCollections((p) => p.filter((x) => x.id !== c.id));
@@ -1043,6 +1072,39 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         </header>
 
         <div className="scroll" onPointerDown={startSelection}>
+          {projectRootView && currentProject && (
+            <div className="project-hero">
+              <div className="project-hero-info">
+                <div className="project-hero-avatar">{account?.avatar_url ? <img src={account.avatar_url} alt="" /> : <span>{(account?.nickname || 'E').slice(0, 1).toUpperCase()}</span>}</div>
+                <h2>{currentProject.name}</h2>
+                <div className="project-hero-meta">
+                  <span>С {new Date(currentProject.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                  <span>{projectItemCount} {plural(projectItemCount, 'карточка', 'карточки', 'карточек')}</span>
+                  <span>{projectCollections.length} {plural(projectCollections.length, 'борд', 'борда', 'бордов')}</span>
+                </div>
+                <button className="btn ghost project-hero-edit" onClick={() => setProjectModal(currentProject)}>Изменить проект</button>
+              </div>
+              <div className="project-hero-cover">
+                {currentProject.cover_url ? <img src={currentProject.cover_url} alt="" /> : projectCoverThumbs.length ? (
+                  <div className={'project-hero-mosaic count-' + projectCoverThumbs.length}>
+                    {projectCoverThumbs.map((item) => <img key={item.id} src={item.thumb || item.src || ''} alt="" />)}
+                  </div>
+                ) : <div className="project-hero-cover-empty" />}
+                <div className="project-hero-cover-actions">
+                  <button aria-label="Загрузить обложку" title="Загрузить обложку" onClick={() => coverRef.current?.click()}><Icon name="plus" /></button>
+                  <button aria-label="Настройки проекта" title="Настройки проекта" onClick={() => setProjectModal(currentProject)}><Icon name="edit" /></button>
+                </div>
+                <input ref={coverRef} type="file" accept="image/*" hidden onChange={(event) => { void uploadProjectCover(event.target.files?.[0]); event.target.value = ''; }} />
+              </div>
+            </div>
+          )}
+          {projectRootView && (
+            <div className="project-tabs">
+              <button className={contentTab === 'all' ? 'on' : ''} onClick={() => setContentTab('all')}>Все</button>
+              <button className={contentTab === 'boards' ? 'on' : ''} onClick={() => setContentTab('boards')}>Борды</button>
+              <button className={contentTab === 'items' ? 'on' : ''} onClick={() => setContentTab('items')}>Карточки</button>
+            </div>
+          )}
           <div ref={gridRef} className="grid">
             {feedEntries.map((entry) => {
               if (entry.type === 'collection') {

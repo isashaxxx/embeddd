@@ -10,7 +10,7 @@ export type Collection = {
   project_id: string | null;
 };
 
-export type Project = { id: string; slug: string; name: string; color: string; position: number; created_at: string };
+export type Project = { id: string; slug: string; name: string; color: string; position: number; created_at: string; cover_url: string | null };
 
 export type Item = {
   id: string;
