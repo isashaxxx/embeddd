@@ -16,7 +16,12 @@ type AiMode = 'auto' | 'ask' | 'off';
 const BLOCK_KINDS = new Set(['text', 'heading', 'callout', 'html', 'divider']);
 const isBlock = (item: Item) => BLOCK_KINDS.has(item.kind);
 const elementSize = (size: Item['display_size']): ElementSize => size === 'M' ? 'M' : size === 'L' || size === 'XL' ? 'L' : 'S';
-const pinCrop = (index: number) => (['compact', 'portrait', 'tall'] as const)[index % 3];
+const pinCrop = (item: Item) => {
+  const numericPosition = Number(item.position);
+  const fallback = [...item.id].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const seed = Number.isFinite(numericPosition) ? Math.round(numericPosition) : fallback;
+  return (['compact', 'portrait', 'tall'] as const)[Math.abs(seed) % 3];
+};
 
 export default function Wall({ initialCollections, initialItems }: Props) {
   const [collections, setCollections] = useState(initialCollections);
@@ -36,6 +41,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [aiMode, setAiMode] = useState<AiMode>('ask');
   const [aiMenu, setAiMenu] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [gridMetrics, setGridMetrics] = useState({ width: 0, columns: 2 });
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -72,7 +78,21 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   const targetCollection = () => (active === 'all' || active === 'fav' ? null : active);
 
-  const gridSignature = visible.map((item) => `${item.id}:${isBlock(item) ? elementSize(item.display_size) : 'pin'}`).join('|');
+  const gridSignature = visible.map((item) => `${item.id}:${isBlock(item) ? elementSize(item.display_size) : 'pin'}`).sort().join('|');
+
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const measure = () => {
+      const width = grid.getBoundingClientRect().width;
+      const columns = width >= 1280 ? 6 : width >= 1000 ? 5 : width >= 760 ? 4 : width >= 520 ? 3 : 2;
+      setGridMetrics((current) => current.width === width && current.columns === columns ? current : { width, columns });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(grid);
+    measure();
+    return () => observer.disconnect();
+  }, []);
 
   // Muuri owns geometry and sorting. React owns content and persistence.
   useEffect(() => {
@@ -99,7 +119,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         layoutDuration: 260,
         layoutEasing: 'ease-out',
         dragSortHeuristics: { sortInterval: 45, minDragDistance: 6, minBounceBackAngle: 1 },
-        dragRelease: { duration: 240, easing: 'ease-out', useDragContainer: true },
+        dragRelease: { duration: 240, easing: 'ease-out', useDragContainer: false },
         dragAutoScroll: { targets: grid.parentElement ? [grid.parentElement] : [], threshold: 80, safeZone: 0.15 },
         dragPlaceholder: {
           enabled: true,
@@ -111,7 +131,6 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       instance.on('dragStart', (item) => {
         const element = item.getElement();
         if (element) {
-          element.style.width = `${element.getBoundingClientRect().width}px`;
           element.classList.add('is-grabbed');
         }
         document.body.classList.add('grid-dragging');
@@ -134,7 +153,6 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       instance.on('dragReleaseEnd', (item) => {
         const element = item.getElement();
         if (!element) return;
-        element.style.removeProperty('width');
         instance.refreshItems([item]).layout();
         if (pendingOrder) {
           const order = pendingOrder;
@@ -564,11 +582,14 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
         <div className="scroll" onPointerDown={startSelection}>
           <div ref={gridRef} className="grid">
-            {visible.map((it, index) => (
-              <div key={it.id} className={`grid-item ${isBlock(it) ? `element-item element-size-${elementSize(it.display_size).toLowerCase()}` : 'pin-item'}`} data-card-id={it.id}>
-                <div className="grid-item-content"><Card item={it} index={index} /></div>
+            {visible.map((it) => {
+              const blockSpan = isBlock(it) ? elementSize(it.display_size) === 'L' ? 3 : elementSize(it.display_size) === 'M' ? 2 : 1 : 1;
+              const span = Math.min(blockSpan, gridMetrics.columns);
+              const itemWidth = gridMetrics.width ? gridMetrics.width * span / gridMetrics.columns : 0;
+              return <div key={it.id} className={`grid-item ${isBlock(it) ? `element-item element-size-${elementSize(it.display_size).toLowerCase()}` : 'pin-item'}`} data-card-id={it.id} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
+                <div className="grid-item-content"><Card item={it} /></div>
               </div>
-            ))}
+            })}
           </div>
           {!visible.length && (
             <div className="empty">
@@ -642,13 +663,13 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     );
   }
 
-  function Card({ item, index }: { item: Item; index: number }) {
+  function Card({ item }: { item: Item }) {
     const [playing, setPlaying] = useState(false);
     const boxRef = useRef<HTMLDivElement>(null);
 
     const isMedia = item.kind === 'image' || item.kind === 'video';
     const size = elementSize(item.display_size);
-    const crop = pinCrop(index);
+    const crop = pinCrop(item);
     return (
       <div
         className={`card ${isBlock(item) ? 'block-card' : 'pin-card'}${selected.has(item.id) ? ' selected' : ''}`}
