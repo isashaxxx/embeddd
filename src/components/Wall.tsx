@@ -33,6 +33,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [collections, setCollections] = useState(initialCollections);
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<Active>(initialActive);
+  const [locationReady, setLocationReady] = useState(initialActive !== 'all' || initialProject !== 'all' || !!initialPost);
   const [editing, setEditing] = useState<Item | null>(null);
   const [disposing, setDisposing] = useState<Item | null>(null);
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
@@ -72,6 +73,32 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const selectionIdsRef = useRef<Set<string>>(new Set());
   const gridRef = useRef<HTMLDivElement>(null);
   const muuriRef = useRef<Muuri | null>(null);
+
+  useEffect(() => {
+    if (locationReady) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem('embeddd:last-location') || '{}') as { active?: string; project?: string };
+      const savedBoard = saved.active && !['all', 'fav', 'archive'].includes(saved.active)
+        ? initialCollections.find((board) => board.id === saved.active)
+        : null;
+      if (savedBoard) {
+        setActive(savedBoard.id);
+        setActiveProject(savedBoard.project_id || 'all');
+      } else {
+        const savedProject = initialProjects.some((project) => project.id === saved.project) ? saved.project! : 'all';
+        setActiveProject(savedProject);
+        setActive(saved.active === 'fav' || saved.active === 'archive' ? saved.active : 'all');
+      }
+    } catch {
+      localStorage.removeItem('embeddd:last-location');
+    }
+    setLocationReady(true);
+  }, [initialCollections, initialProjects, locationReady]);
+
+  useEffect(() => {
+    if (!locationReady || initialPost) return;
+    localStorage.setItem('embeddd:last-location', JSON.stringify({ active, project: activeProject }));
+  }, [active, activeProject, initialPost, locationReady]);
 
   const say = useCallback((msg: string, undo?: () => void) => {
     setToast({ msg, undo });
