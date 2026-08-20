@@ -141,9 +141,6 @@ button{cursor:pointer;border:none;background:none;padding:0}
 @container (min-width:1280px){
   .grid-item{width:16.666667%}.grid-item.element-size-m{width:33.333333%}.grid-item.element-size-l{width:50%}
 }
-@container (min-width:1540px){
-  .grid-item{width:14.285714%}.grid-item.element-size-m{width:28.571429%}.grid-item.element-size-l{width:42.857143%}
-}
 .grid-item-content{position:relative;width:100%}
 .card{
   position:relative;width:100%;margin:0;background:var(--panel);
@@ -153,7 +150,14 @@ button{cursor:pointer;border:none;background:none;padding:0}
   transition:box-shadow .18s, transform .18s;
 }
 .card:hover{box-shadow:var(--shadow-hi);transform:translateY(-2px)}
-.card.selected,.grid-item.selecting .card{box-shadow:0 0 0 3px var(--accent),var(--shadow-hi)}
+.pin-card{background:transparent;border:0;border-radius:0;overflow:visible;box-shadow:none}
+.pin-card:hover{box-shadow:none;transform:none}
+.pin-card>img.media,.pin-card>video.media{border-radius:16px}
+.pin-card>.embed-box,.pin-card>.frame{border-radius:16px;overflow:hidden}
+.pin-card>.meta{padding:9px 8px 2px}
+.pin-card>.meta .t{font-weight:600}
+.pin-card>.link-card{border-radius:16px;background-color:var(--panel);box-shadow:none}
+.card.selected,.grid-item.selecting .card{box-shadow:0 0 0 3px var(--accent)}
 .card.selected::after,.grid-item.selecting .card::after{content:'';position:absolute;inset:0;border:1px solid var(--ink);border-radius:inherit;pointer-events:none;z-index:3}
 .muuri-item-dragging{z-index:30!important;pointer-events:none}
 .muuri-item-dragging .card{box-shadow:0 24px 70px rgba(20,20,15,.28);transform:rotate(.5deg) scale(1.015)}

@@ -627,7 +627,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const size = elementSize(item.display_size);
     return (
       <div
-        className={'card' + (selected.has(item.id) ? ' selected' : '')}
+        className={`card ${isBlock(item) ? 'block-card' : 'pin-card'}${selected.has(item.id) ? ' selected' : ''}`}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('button, iframe, video, .resize')) return;
           if (e.metaKey || e.ctrlKey || e.shiftKey || selected.size) {
