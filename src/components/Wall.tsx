@@ -535,11 +535,42 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     say(`Объединено бордов: ${mergedCount}`);
   }
 
-  async function placeAutomatically(item: Item, result: AiSuggestion, projectIdOverride?: string | null) {
+  // Загрузка в проект без выбранного борда обязана сразу дать карточке
+  // видимый борд — иначе, пока ИИ (если он вообще включён и у него есть
+  // кредиты) не отработает, карточка висит с collection_id = null и не
+  // проходит фильтр "принадлежит проекту", то есть невидима. Переиспользуем
+  // первый существующий борд проекта, а если бордов вообще нет — заводим
+  // дефолтный "Board 1", как в Notion.
+  async function resolveDefaultBoard(projectId: string): Promise<Collection> {
+    const key = `default:${projectId}`;
+    let creation = collectionCreationRef.current.get(key);
+    if (!creation) {
+      creation = (async () => {
+        const existingBoard = collections.find((c) => c.project_id === projectId);
+        if (existingBoard) return existingBoard;
+        const colors = ['#C6F04A', '#FFB86B', '#87CEEB', '#D6B4FC', '#FF8F8F'];
+        const res = await fetch('/api/collections', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: 'Board 1', color: colors[collections.length % colors.length], projectId }),
+        });
+        if (!res.ok) throw new Error('default board create failed');
+        return res.json() as Promise<Collection>;
+      })();
+      creation.catch(() => { collectionCreationRef.current.delete(key); });
+      collectionCreationRef.current.set(key, creation);
+    }
+    const board = await creation;
+    setCollections((p) => p.some((c) => c.id === board.id) ? p : [...p, board]);
+    return board;
+  }
+
+  async function placeAutomatically(item: Item, result: AiSuggestion, projectIdOverride?: string | null, provisional = false) {
     // A board explicitly chosen by the user always wins over AI auto-placement.
     // AI may enrich the card, but silently moving a freshly uploaded item makes
-    // it look as if the upload failed in the currently open board.
-    if (item.collection_id) {
+    // it look as if the upload failed in the currently open board — unless that
+    // board was only our own fallback placement (`provisional`), in which case
+    // AI is still free to move it into a more fitting board.
+    if (item.collection_id && !provisional) {
       await patch(item.id, { title: result.title, note: result.description, tags: result.tags });
       say('ИИ добавил название и теги');
       return;
@@ -585,11 +616,15 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         collection = undefined;
       }
     }
-    await patch(item.id, { title: result.title, note: result.description, tags: result.tags, collectionId: collection?.id || null });
+    // If AI couldn't resolve a board for a provisional item, leave it in its
+    // fallback board rather than nulling it out — a card should never end up
+    // less visible after AI runs than it was before.
+    const finalCollectionId = collection?.id ?? (provisional ? item.collection_id : null);
+    await patch(item.id, { title: result.title, note: result.description, tags: result.tags, collectionId: finalCollectionId });
     say(collection ? `ИИ разместил в «${collection.name}»` : 'ИИ назвал карточку');
   }
 
-  async function analyzeImage(item: Item, manual = false, projectIdOverride?: string | null) {
+  async function analyzeImage(item: Item, manual = false, projectIdOverride?: string | null, provisional = false) {
     if (aiMode === 'off') {
       if (manual) say('ИИ выключен');
       return;
@@ -606,7 +641,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       const result = await res.json();
       if (typeof result.creditsRemaining === 'number') setProgress((current) => current ? { ...current, aiCredits: result.creditsRemaining } : current);
       if (!res.ok) return say(result.error || 'ИИ-анализ не сработал');
-      await placeAutomatically(item, result, projectId);
+      await placeAutomatically(item, result, projectId, provisional);
     } catch {
       say('Не удалось связаться с ИИ');
     } finally {
@@ -629,6 +664,16 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       : destinationProjectId
         ? projects.find((p) => p.id === destinationProjectId)?.name || 'проект'
         : 'Всё';
+    // No board picked, but uploading inside a project: give the card a real
+    // board right away (reuse the project's first board, or create "Board 1")
+    // so it's visible immediately, whether or not AI is on, has credits, or
+    // ever runs (videos never get analyzed at all). AI can still move a
+    // provisional card into a smarter board afterwards.
+    const provisional = destination === null && destinationProjectId !== null;
+    let fallbackBoardId: string | null = null;
+    if (provisional) {
+      try { fallbackBoardId = (await resolveDefaultBoard(destinationProjectId!)).id; } catch { fallbackBoardId = null; }
+    }
 
     setUpload({ done: 0, total: list.length, label: destinationLabel });
     let succeeded = 0;
@@ -686,7 +731,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            collectionId: destination,
+            collectionId: destination ?? fallbackBoardId,
             upload: {
               kind: isVideo ? 'video' : 'image',
               key: signed.key, thumbKey: signed.thumbKey,
@@ -700,7 +745,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         const real: Item = await res.json();
         setItems((p) => [real, ...p]);
         succeeded++;
-        if (!isVideo && aiMode !== 'off') void analyzeImage(real, false, destinationProjectId);
+        if (!isVideo && aiMode !== 'off') void analyzeImage(real, false, destinationProjectId, provisional);
       } catch (error) {
         say(`${file.name}: ${error instanceof Error ? error.message : 'файл не загрузился'}`);
       }
