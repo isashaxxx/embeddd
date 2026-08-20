@@ -8,7 +8,7 @@ export type Collection = {
 export type Item = {
   id: string;
   collection_id: string | null;
-  kind: 'image' | 'video' | 'embed' | 'link';
+  kind: 'image' | 'video' | 'embed' | 'link' | 'text' | 'heading' | 'callout' | 'html' | 'divider';
   provider: string | null;
   position: number;
   fav: boolean;

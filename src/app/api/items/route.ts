@@ -9,6 +9,7 @@ export const maxDuration = 15;
  * Две ветки:
  *  { url, collectionId }              — ссылка, сервер сам распознаёт и тянет og:image
  *  { upload: {...}, collectionId }    — файл, уже залитый браузером в R2
+ *  { block: {...}, collectionId }     — текстовый или HTML-блок
  */
 export async function POST(req: Request) {
   const sql = db();
@@ -27,6 +28,18 @@ export async function POST(req: Request) {
                          r2_key, r2_thumb_key, title)
       values (${id}, ${collectionId}, ${u.kind}, 'local', ${position}, ${u.src}, ${u.thumb ?? u.src},
               ${u.width ?? null}, ${u.height ?? null}, ${u.key}, ${u.thumbKey ?? null}, ${u.title ?? ''})`;
+    return NextResponse.json(await one(id));
+  }
+
+  if (body.block) {
+    const allowed = new Set(['text', 'heading', 'callout', 'html', 'divider']);
+    const kind = String(body.block.kind || '');
+    if (!allowed.has(kind)) return NextResponse.json({ error: 'Неизвестный тип блока' }, { status: 400 });
+    const title = String(body.block.title || '').slice(0, 500);
+    const note = String(body.block.note || '').slice(0, 100000);
+    await sql`
+      insert into items (id, collection_id, kind, provider, position, embed_h, title, note)
+      values (${id}, ${collectionId}, ${kind}, 'block', ${position}, ${kind === 'html' ? 280 : null}, ${title}, ${note})`;
     return NextResponse.json(await one(id));
   }
 

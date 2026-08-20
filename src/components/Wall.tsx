@@ -6,12 +6,12 @@ import { shrink, videoSize } from '@/lib/resize';
 
 type Props = { initialCollections: Collection[]; initialItems: Item[] };
 type Active = 'all' | 'fav' | string;
+type NewElement = 'link' | 'text' | 'heading' | 'callout' | 'html';
 
 export default function Wall({ initialCollections, initialItems }: Props) {
   const [collections, setCollections] = useState(initialCollections);
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<Active>('all');
-  const [cols, setCols] = useState(4);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<Active | null>(null);
   const [editing, setEditing] = useState<Item | null>(null);
@@ -21,14 +21,11 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [dropping, setDropping] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [elementMenu, setElementMenu] = useState(false);
+  const [newElement, setNewElement] = useState<NewElement | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
-
-  useEffect(() => {
-    const saved = Number(localStorage.getItem('embeddd:cols'));
-    if (saved >= 2 && saved <= 5) setCols(saved);
-  }, []);
 
   const say = useCallback((msg: string, undo?: () => void) => {
     setToast({ msg, undo });
@@ -68,6 +65,18 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     }
     const real: Item = await res.json();
     setItems((p) => p.map((i) => (i.id === tempId ? real : i)));
+  }
+
+  async function addBlock(kind: Exclude<NewElement, 'link'> | 'divider', title = '', note = '') {
+    const res = await fetch('/api/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ block: { kind, title, note }, collectionId: targetCollection() }),
+    });
+    if (!res.ok) return say('Блок не создался');
+    const item: Item = await res.json();
+    setItems((p) => [item, ...p]);
+    setNewElement(null);
   }
 
   async function addFiles(files: File[]) {
@@ -247,11 +256,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       if (/^https?:\/\/|^www\./i.test(txt)) { e.preventDefault(); addLink(txt); }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setLightbox(null); }
-      if (e.key === '/' && !(e.target as HTMLElement)?.matches?.('input, textarea')) {
-        e.preventDefault();
-        (document.getElementById('paste') as HTMLInputElement)?.focus();
-      }
+      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setLightbox(null); setNewElement(null); setElementMenu(false); }
     };
     document.addEventListener('paste', onPaste);
     document.addEventListener('keydown', onKey);
@@ -321,35 +326,29 @@ export default function Wall({ initialCollections, initialItems }: Props) {
             <h1>{title}</h1>
             <p>{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
           </div>
-          <div className="paste">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5" />
-              <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12 19" />
-            </svg>
-            <input
-              id="paste"
-              placeholder="Вставь ссылку и нажми Enter"
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter') return;
-                const v = (e.target as HTMLInputElement).value.trim();
-                if (!v) return;
-                v.split(/\s+/).forEach(addLink);
-                (e.target as HTMLInputElement).value = '';
-              }}
-            />
+          <div className="add-element">
+            <button className="btn lime" aria-expanded={elementMenu} onClick={() => setElementMenu((v) => !v)}>＋ Элемент</button>
+            {elementMenu && <>
+              <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setElementMenu(false)} />
+              <div className="element-menu">
+                <div className="element-menu-label">Добавить на стену</div>
+                <button onClick={() => { setElementMenu(false); fileRef.current?.click(); }}><b>▧</b><span>Фото или видео<small>Загрузить с устройства</small></span></button>
+                <button onClick={() => { setElementMenu(false); setNewElement('link'); }}><b>↗</b><span>Ссылка / Embed<small>YouTube, Pinterest и сайты</small></span></button>
+                <i />
+                <button onClick={() => { setElementMenu(false); setNewElement('text'); }}><b>T</b><span>Текст<small>Заметка или описание</small></span></button>
+                <button onClick={() => { setElementMenu(false); setNewElement('heading'); }}><b>H</b><span>Заголовок<small>Разделить идеи на смысловые блоки</small></span></button>
+                <button onClick={() => { setElementMenu(false); setNewElement('callout'); }}><b>◉</b><span>Callout<small>Акцент с эмодзи</small></span></button>
+                <button onClick={() => { setElementMenu(false); setNewElement('html'); }}><b>&lt;/&gt;</b><span>HTML<small>Свой код в изолированном блоке</small></span></button>
+                <button onClick={() => { setElementMenu(false); addBlock('divider'); }}><b>—</b><span>Разделитель<small>Тонкая визуальная пауза</small></span></button>
+              </div>
+            </>}
           </div>
-          <div className="seg">
-            {[2, 3, 4, 5].map((n) => (
-              <button key={n} className={cols === n ? 'on' : ''} onClick={() => { setCols(n); localStorage.setItem('embeddd:cols', String(n)); }}>{n}</button>
-            ))}
-          </div>
-          <button className="btn lime" onClick={() => fileRef.current?.click()}>＋ Файлы</button>
           <input ref={fileRef} type="file" accept="image/*,video/*" multiple hidden
             onChange={(e) => { addFiles([...(e.target.files || [])]); e.target.value = ''; }} />
         </header>
 
         <div className="scroll">
-          <div className="grid" style={{ columnCount: cols }}>
+          <div className="grid">
             {visible.map((it) => (
               <Card key={it.id} item={it} />
             ))}
@@ -357,7 +356,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           {!visible.length && (
             <div className="empty">
               <h2>Пусто. Кидай сюда всё.</h2>
-              <p>Перетащи файлы в окно, вставь ссылку через <kbd>⌘V</kbd> или из поля сверху.</p>
+              <p>Нажми «+ Элемент», перетащи файлы в окно или просто вставь ссылку через <kbd>⌘V</kbd>.</p>
               <p>Карточки таскаются мышкой — между собой и в коллекции слева.</p>
             </div>
           )}
@@ -368,6 +367,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
       {editing && <EditModal item={editing} />}
       {collModal && <CollModal />}
+      {newElement && <NewElementModal kind={newElement} />}
       {lightbox && <Lightbox />}
 
       {upload && (
@@ -422,19 +422,25 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       <div
         className={'card' + (dragId === item.id ? ' dragging' : '') + (edge ? ` insert-${edge}` : '')}
         draggable
-        onDragStart={() => setDragId(item.id)}
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('application/x-embeddd-item', item.id);
+          setDragId(item.id);
+        }}
         onDragEnd={() => { setDragId(null); setEdge(''); }}
         onDragOver={(e) => {
-          if (!dragId || dragId === item.id) return;
+          const sourceId = dragId || e.dataTransfer.getData('application/x-embeddd-item');
+          if (!sourceId || sourceId === item.id) return;
           e.preventDefault(); e.stopPropagation();
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
           setEdge(e.clientY > r.top + r.height / 2 ? 'after' : 'before');
         }}
         onDragLeave={() => setEdge('')}
         onDrop={(e) => {
-          if (!dragId || dragId === item.id) return;
+          const sourceId = dragId || e.dataTransfer.getData('application/x-embeddd-item');
+          if (!sourceId || sourceId === item.id) return;
           e.preventDefault(); e.stopPropagation();
-          reorder(dragId, item.id, edge === 'after');
+          reorder(sourceId, item.id, edge === 'after');
           setEdge('');
         }}
         onClick={(e) => {
@@ -444,18 +450,18 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         }}
       >
         {item.kind === 'image' && (
-          <img className="media" loading="lazy" src={item.thumb || item.src || ''} alt=""
+          <img className="media" draggable={false} loading="lazy" src={item.thumb || item.src || ''} alt=""
             style={item.width && item.height ? { aspectRatio: `${item.width}/${item.height}` } : undefined} />
         )}
 
-        {item.kind === 'video' && <video className="media" controls preload="metadata" src={item.src || ''} />}
+        {item.kind === 'video' && <video className="media" draggable={false} controls preload="metadata" src={item.src || ''} />}
 
         {item.kind === 'embed' && (
           <div ref={boxRef} className="embed-box"
             style={item.ratio ? { aspectRatio: `${(100 / item.ratio).toFixed(4)}` } : { height: (item.embed_h || 480) + 'px' }}>
             {item.thumb && !playing ? (
               <>
-                <img className="media" loading="lazy" src={item.thumb} alt=""
+                <img className="media" draggable={false} loading="lazy" src={item.thumb} alt=""
                   style={{ position: 'absolute', inset: 0, height: '100%', objectFit: 'cover' }} />
                 <button className="play" onClick={(e) => { e.stopPropagation(); setPlaying(true); }}><i /></button>
               </>
@@ -469,7 +475,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         {item.kind === 'link' && (
           item.thumb ? (
             <>
-              <img className="media" loading="lazy" src={item.thumb} alt="" />
+              <img className="media" draggable={false} loading="lazy" src={item.thumb} alt="" />
               <div className="meta">
                 <div className="meta-txt">
                   <div className="t">{item.title || item.host}</div>
@@ -479,14 +485,20 @@ export default function Wall({ initialCollections, initialItems }: Props) {
             </>
           ) : (
             <div className="link-card">
-              <img className="fav" alt="" src={`https://www.google.com/s2/favicons?domain=${item.host}&sz=64`} />
+              <img className="fav" draggable={false} alt="" src={`https://www.google.com/s2/favicons?domain=${item.host}&sz=64`} />
               <h4>{item.title || item.host}</h4>
               <div className="host">{item.host}</div>
             </div>
           )
         )}
 
-        {item.kind !== 'link' && (item.title || item.note) && (
+        {item.kind === 'text' && <div className="content-block text-block">{item.note}</div>}
+        {item.kind === 'heading' && <div className="content-block heading-block">{item.note || item.title}</div>}
+        {item.kind === 'callout' && <div className="content-block callout-block"><span>{item.title || '💡'}</span><p>{item.note}</p></div>}
+        {item.kind === 'html' && <div ref={boxRef} className="html-block" style={{ height: (item.embed_h || 280) + 'px' }}><iframe title="HTML-блок" sandbox="allow-scripts" srcDoc={item.note} /></div>}
+        {item.kind === 'divider' && <div className="divider-block"><i /></div>}
+
+        {['image', 'video', 'embed'].includes(item.kind) && (item.title || item.note) && (
           <div className="meta">
             <div className="meta-txt">
               {item.title && <div className="t">{item.title}</div>}
@@ -509,7 +521,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
         <div className="grip">⋮⋮</div>
 
-        {item.kind === 'embed' && !item.ratio && (
+        {(item.kind === 'html' || (item.kind === 'embed' && !item.ratio)) && (
           <div className="resize" onPointerDown={(e) => {
             e.preventDefault(); e.stopPropagation();
             const box = boxRef.current!;
@@ -524,6 +536,30 @@ export default function Wall({ initialCollections, initialItems }: Props) {
             window.addEventListener('pointerup', up);
           }} />
         )}
+      </div>
+    );
+  }
+
+  function NewElementModal({ kind }: { kind: NewElement }) {
+    const [value, setValue] = useState('');
+    const [icon, setIcon] = useState('💡');
+    const names: Record<NewElement, string> = { link: 'Ссылка / Embed', text: 'Текст', heading: 'Заголовок', callout: 'Callout', html: 'HTML' };
+    const submit = () => {
+      if (!value.trim()) return;
+      if (kind === 'link') { addLink(value.trim()); setNewElement(null); return; }
+      addBlock(kind, kind === 'callout' ? icon : '', value);
+    };
+    return (
+      <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setNewElement(null); }}>
+        <div className="modal element-modal">
+          <h3>{names[kind]}</h3>
+          {kind === 'callout' && <div className="field icon-field"><label>Иконка</label><input value={icon} maxLength={4} onChange={(e) => setIcon(e.target.value)} /></div>}
+          <div className="field"><label>{kind === 'link' ? 'URL' : kind === 'html' ? 'Код' : 'Содержание'}</label>
+            {kind === 'link' ? <input value={value} autoFocus placeholder="https://…" onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
+              : <textarea value={value} autoFocus rows={kind === 'html' ? 10 : 5} placeholder={kind === 'html' ? '<div>…</div>' : 'Начни писать…'} onChange={(e) => setValue(e.target.value)} />}
+          </div>
+          <div className="modal-foot"><button className="btn ghost" onClick={() => setNewElement(null)}>Отмена</button><button className="btn" onClick={submit}>Добавить</button></div>
+        </div>
       </div>
     );
   }
