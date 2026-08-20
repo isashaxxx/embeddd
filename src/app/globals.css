@@ -33,6 +33,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 
 /* ---------- layout ---------- */
 .app{display:flex;height:100vh}
+.app.lightbox-open .sidebar{display:none}
 
 /* ---------- sidebar ---------- */
 .sidebar{
@@ -42,9 +43,10 @@ button{cursor:pointer;border:none;background:none;padding:0}
   background:#fff;
 }
 .brand{padding:22px 20px 16px;display:flex;align-items:center;gap:9px}
-.brand-home{width:100%;text-align:left;cursor:pointer}.brand-home:hover b{opacity:.62}.brand-home b{transition:opacity .14s}
+.brand-home{text-align:left;cursor:pointer}.brand-home:hover b{opacity:.62}.brand-home b{transition:opacity .14s}
 .brand-mark{display:block;width:28px;height:28px;border-radius:7px;flex:0 0 28px}
 .brand b{font-size:19px;font-weight:700;letter-spacing:-.035em}
+.topbar .brand{padding:0;margin-right:8px}
 .brand span{font-family:var(--font-mono),monospace;font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 .nav{flex:1;overflow-y:auto;padding:4px 12px 10px}
 .nav-label{
@@ -374,7 +376,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .account-modal{max-width:600px}.account-head{display:flex;align-items:center;gap:15px;margin-bottom:22px}.account-head h3{margin:0 0 3px}.account-head p{margin:0;color:var(--muted);font-size:11px}.account-avatar{position:relative;width:68px;height:68px;flex:0 0 68px;border-radius:50%;background:var(--accent);display:grid;place-items:center;overflow:hidden}.account-avatar>img{width:100%;height:100%;object-fit:cover}.account-avatar>span{font-size:25px;font-weight:750}.account-avatar>button{position:absolute;inset:auto 0 0;padding:5px 2px;background:rgba(20,20,15,.75);color:#fff;font-size:8px}.account-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.permissions>label{display:block;margin-bottom:6px;font-family:var(--font-mono),monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.permissions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.permissions>label{grid-column:1/-1}.permissions button{display:flex;align-items:center;gap:9px;padding:9px;border:1px solid var(--line);border-radius:11px;text-align:left}.permissions button.on{background:rgba(198,240,74,.13);border-color:var(--accent)}.permissions button>i{width:18px;height:18px;flex:0 0 18px;border:1px solid var(--line);border-radius:5px;display:grid;place-items:center;font-size:10px;font-style:normal}.permissions button.on>i{background:var(--accent);border-color:var(--accent)}.permissions button>span{display:flex;flex-direction:column}.permissions button b{font-size:11px}.permissions button small{margin-top:2px;color:var(--muted);font-size:9px;line-height:1.25}.account-meta{margin-top:13px;padding:10px 12px;border-radius:10px;background:var(--hover);display:flex;align-items:center;justify-content:space-between;font-size:11px}.account-meta b{font-family:var(--font-mono),monospace}
 
 /* ---------- photo detail ---------- */
-.lb{position:fixed;z-index:4;display:none;left:var(--sidebar);right:0;top:72px;bottom:0;background:#fff;overflow:auto;overflow-x:hidden;padding:70px clamp(16px,2.5vw,48px) 56px}
+.lb{position:fixed;z-index:4;display:none;left:0;right:0;top:72px;bottom:0;background:rgba(20,20,15,.55);backdrop-filter:blur(6px);overflow:auto;overflow-x:hidden;padding:70px clamp(16px,2.5vw,48px) 56px}
 .lb.on{display:block}
 .lb-back{position:absolute;z-index:2;top:12px;left:clamp(16px,2.5vw,48px);width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#fff;box-shadow:0 3px 18px rgba(0,0,0,.12);transition:background .18s,transform .18s}
 .lb-back:hover{background:var(--hover)}

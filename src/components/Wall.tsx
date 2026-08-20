@@ -881,9 +881,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   }).current;
 
   return (
-    <div className={'app' + (moveMode ? ' move-mode' : '')}>
+    <div className={'app' + (moveMode ? ' move-mode' : '') + (lightbox ? ' lightbox-open' : '')}>
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
-        <button className="brand brand-home" aria-label="На главную" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
         <div className="nav">
           {activeProject !== 'all' ? <>
             <div className="project-workspace">
@@ -917,6 +916,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
       <main className="main">
         <header className="topbar">
+          <button className="brand brand-home" aria-label="На главную" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
           <button className="btn ghost menu-btn" aria-label="Открыть коллекции" onClick={() => setMenuOpen((v) => !v)}>☰</button>
           <div className="title-wrap">
             <h1>{title}</h1>
