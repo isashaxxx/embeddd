@@ -173,6 +173,17 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .nav-label-actions{display:flex;align-items:center;gap:2px}
 @keyframes ai-pulse{50%{opacity:.35;transform:scale(.7)}}
 .menu-shield{position:fixed;inset:0;z-index:6;cursor:default}
+.sort-control{position:relative}
+.sort-menu{
+  position:absolute;z-index:7;right:0;top:calc(100% + 9px);width:190px;padding:6px;
+  background:var(--panel);border:1px solid var(--line-soft);border-radius:14px;
+  box-shadow:0 22px 60px rgba(20,20,15,.18);
+}
+.sort-menu button{width:100%;display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;text-align:left;font-size:13px;color:var(--muted)}
+.sort-menu button:hover{background:var(--hover);color:var(--ink)}
+.sort-menu button.on{color:var(--ink);font-weight:600}
+.sort-menu button .ui-icon{width:14px;height:14px;flex:0 0 14px;visibility:hidden}
+.sort-menu button.on .ui-icon{visibility:visible}
 .element-menu{
   position:absolute;z-index:7;right:0;top:calc(100% + 9px);width:310px;padding:8px;
   background:var(--panel);border:1px solid var(--line-soft);border-radius:15px;

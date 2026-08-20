@@ -54,6 +54,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [accountOpen, setAccountOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [newElement, setNewElement] = useState<NewElement | null>(null);
   const [contentTab, setContentTab] = useState<'all' | 'boards' | 'items'>('all');
   const boardSensors = useSensors(
@@ -1192,7 +1193,18 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           </div>
           {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
           <div ref={topSearchRef} className={'top-search' + (searchOpen ? ' open' : '')}>{searchOpen && <input autoFocus value={search} placeholder="Поиск" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />}<button className="icon-control" aria-label="Поиск" title="Поиск" onClick={() => { if (searchOpen && search) setSearch(''); else setSearchOpen((value) => !value); }}><Icon name={searchOpen && search ? 'close' : 'search'} /></button></div>
-          {active === 'all' && <button className="icon-control" aria-label="Изменить порядок ленты" title={feedOrder === 'newest' ? 'Сначала новые' : 'Сначала старые'} onClick={() => setFeedOrder((value) => value === 'newest' ? 'oldest' : 'newest')}><Icon name="sort" /></button>}
+          {active === 'all' && (
+            <div className="sort-control">
+              <button className="icon-control" aria-label="Порядок ленты" aria-expanded={sortMenuOpen} title="Порядок ленты" onClick={() => setSortMenuOpen((v) => !v)}><Icon name="sort" /></button>
+              {sortMenuOpen && <>
+                <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setSortMenuOpen(false)} />
+                <div className="sort-menu">
+                  <button className={feedOrder === 'newest' ? 'on' : ''} onClick={() => { setFeedOrder('newest'); setSortMenuOpen(false); }}><Icon name="check" />Сначала новые</button>
+                  <button className={feedOrder === 'oldest' ? 'on' : ''} onClick={() => { setFeedOrder('oldest'); setSortMenuOpen(false); }}><Icon name="check" />Сначала старые</button>
+                </div>
+              </>}
+            </div>
+          )}
           <button className={'icon-control move-toggle' + (moveMode ? ' on' : '')} title={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-label={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-pressed={moveMode}
             onClick={() => setMoveMode((value) => !value)}><Icon name={moveMode ? 'check' : 'move'} /></button>
           <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'} disabled={progress?.aiCredits === 0}
