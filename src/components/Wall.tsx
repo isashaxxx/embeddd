@@ -631,7 +631,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   return (
     <div className={'app' + (moveMode ? ' move-mode' : '')}>
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
-        <div className="brand"><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></div>
+        <button className="brand brand-home" aria-label="На главную" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); router.push('/'); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
         <div className="nav">
           {activeProject !== 'all' ? <>
             <div className="project-workspace">

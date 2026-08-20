@@ -42,6 +42,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
   background:#fff;
 }
 .brand{padding:22px 20px 16px;display:flex;align-items:center;gap:9px}
+.brand-home{width:100%;text-align:left;cursor:pointer}.brand-home:hover b{opacity:.62}.brand-home b{transition:opacity .14s}
 .brand-mark{display:block;width:28px;height:28px;border-radius:7px;flex:0 0 28px}
 .brand b{font-size:19px;font-weight:700;letter-spacing:-.035em}
 .brand span{font-family:var(--font-mono),monospace;font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
