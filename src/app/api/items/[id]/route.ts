@@ -22,6 +22,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
     await sql`update items set display_size = ${p.displaySize} where id = ${id}`;
   if ('textStyle' in p && ['p', 'h1', 'h2', 'h3', 'h4', 'h5'].includes(p.textStyle))
     await sql`update items set text_style = ${p.textStyle} where id = ${id}`;
+  if ('tags' in p && Array.isArray(p.tags)) {
+    const tags = [...new Set(p.tags.map((tag: unknown) => String(tag).trim().toLocaleLowerCase()).filter(Boolean))].slice(0, 12);
+    await sql`update items set tags = ${tags} where id = ${id}`;
+  }
 
   const rows = (await sql`select * from items where id = ${id}`) as unknown[];
   return NextResponse.json(rows[0] ?? null);

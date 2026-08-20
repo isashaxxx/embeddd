@@ -5,6 +5,7 @@ export type Collection = {
   position: number;
   access_mode: 'private' | 'link';
   share_token: string | null;
+  created_at: string;
 };
 
 export type Item = {
@@ -29,5 +30,26 @@ export type Item = {
   note: string;
   display_size: 'XS' | 'S' | 'M' | 'L' | 'XL';
   text_style: 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5';
+  tags: string[];
   created_at?: string;
+};
+
+export type Achievement = {
+  key: string;
+  title: string;
+  description: string;
+  icon: string;
+  xp: number;
+  unlocked: boolean;
+  unlocked_at: string | null;
+  progress: number;
+  target: number;
+};
+
+export type Progress = {
+  xp: number;
+  level: number;
+  nextLevelXp: number;
+  achievements: Achievement[];
+  newlyUnlocked: string[];
 };

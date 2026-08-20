@@ -31,7 +31,19 @@ create table if not exists items (
   note          text default '',
   display_size  text not null default 'M',
   text_style    text not null default 'p',
+  tags          text[] not null default '{}',
   created_at    timestamptz not null default now()
+);
+
+create table if not exists achievements (
+  key         text primary key,
+  unlocked_at timestamptz not null default now()
+);
+
+create table if not exists user_stats (
+  id         text primary key,
+  visits     integer not null default 0,
+  last_visit date
 );
 
 create index if not exists items_position_idx on items (position);

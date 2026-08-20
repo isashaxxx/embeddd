@@ -2,7 +2,7 @@
 
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import type Muuri from 'muuri';
-import type { Collection, Item } from '@/lib/types';
+import type { Collection, Item, Progress } from '@/lib/types';
 import { shrink, videoSize } from '@/lib/resize';
 
 type Props = { initialCollections: Collection[]; initialItems: Item[] };
@@ -10,7 +10,7 @@ type Active = 'all' | 'fav' | string;
 type NewElement = 'link' | 'text' | 'callout' | 'html';
 type ElementSize = 'S' | 'M' | 'L';
 type TextStyle = Item['text_style'];
-type AiSuggestion = { itemId: string; title: string; description: string; collections: string[] };
+type AiSuggestion = { itemId: string; title: string; description: string; collections: string[]; tags: string[] };
 type AiMode = 'auto' | 'ask' | 'off';
 
 const BLOCK_KINDS = new Set(['text', 'heading', 'callout', 'html', 'divider']);
@@ -34,6 +34,10 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [dropping, setDropping] = useState(false);
   const [moveMode, setMoveMode] = useState(false);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [feedOrder, setFeedOrder] = useState<'newest' | 'oldest'>('newest');
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [rewardsOpen, setRewardsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
   const [newElement, setNewElement] = useState<NewElement | null>(null);
@@ -55,6 +59,18 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     setTimeout(() => setToast(null), undo ? 6000 : 2200);
   }, []);
 
+  const taggedCount = items.filter((item) => item.tags?.length).length;
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/progress').then((response) => response.json()).then((next: Progress) => {
+      if (cancelled) return;
+      setProgress(next);
+      const unlocked = next.achievements.find((achievement) => next.newlyUnlocked.includes(achievement.key));
+      if (unlocked) say(`${unlocked.icon} Награда: ${unlocked.title} · +${unlocked.xp} XP`);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [items.length, collections.length, taggedCount, say]);
+
   useEffect(() => {
     const saved = localStorage.getItem('embeddd:ai-mode') as AiMode | null;
     if (saved === 'auto' || saved === 'ask' || saved === 'off') setAiMode(saved);
@@ -69,9 +85,21 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   /* ---------------- данные ---------------- */
 
-  const visible = items.filter((i) =>
-    active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active
-  );
+  const visible = items.filter((i) => {
+    const inSection = active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active;
+    return inSection && (!selectedTag || i.tags?.includes(selectedTag));
+  });
+
+  const feedEntries: ({ type: 'item'; value: Item } | { type: 'collection'; value: Collection })[] = active === 'all'
+    ? [
+        ...visible.map((value) => ({ type: 'item' as const, value })),
+        ...(!selectedTag ? collections.map((value) => ({ type: 'collection' as const, value })) : []),
+      ].sort((a, b) => {
+        const aTime = a.value.created_at ? new Date(a.value.created_at).getTime() : a.value.id.startsWith('temp-') ? Date.now() : 0;
+        const bTime = b.value.created_at ? new Date(b.value.created_at).getTime() : b.value.id.startsWith('temp-') ? Date.now() : 0;
+        return feedOrder === 'newest' ? bTime - aTime : aTime - bTime;
+      })
+    : visible.map((value) => ({ type: 'item' as const, value }));
 
   const countOf = (id: Active) =>
     id === 'all' ? items.length : id === 'fav' ? items.filter((i) => i.fav).length : items.filter((i) => i.collection_id === id).length;
@@ -79,8 +107,9 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const targetCollection = () => (active === 'all' || active === 'fav' ? null : active);
 
   const gridSignature = [
-    ...visible.map((item) => `${item.id}:${isBlock(item) ? elementSize(item.display_size) : 'pin'}`),
-    ...(active === 'all' ? collections.map((collection) => `board:${collection.id}`) : []),
+    ...feedEntries.map((entry) => entry.type === 'item'
+      ? `${entry.value.id}:${isBlock(entry.value) ? elementSize(entry.value.display_size) : 'pin'}`
+      : `board:${entry.value.id}`),
   ].sort().join('|');
 
   useEffect(() => {
@@ -204,6 +233,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       position: -Infinity, fav: false, url, host: safeHost(url), embed_url: null, embed_h: null,
       ratio: null, src: null, thumb: null, width: null, height: null, r2_key: null,
       r2_thumb_key: null, title: safeHost(url), note: '', display_size: 'M', text_style: 'p',
+      tags: [], created_at: new Date().toISOString(),
     };
     setItems((p) => [optimistic, ...p]);
 
@@ -307,7 +337,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         setCollections((p) => p.some((c) => c.id === collection!.id) ? p : [...p, collection!]);
       }
     }
-    await patch(item.id, { title: result.title, note: result.description, collectionId: collection?.id || null });
+    await patch(item.id, { title: result.title, note: result.description, tags: result.tags, collectionId: collection?.id || null });
     say(collection ? `ИИ разместил в «${collection.name}»` : 'ИИ назвал карточку');
   }
 
@@ -325,7 +355,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       if (!res.ok) return say(result.error || 'ИИ-анализ не сработал');
       if (!manual && aiMode === 'auto') await placeAutomatically(item, result);
       else {
-        await patch(item.id, { title: result.title });
+        await patch(item.id, { title: result.title, tags: result.tags });
         setAiQueue((p) => [...p, { itemId: item.id, ...result }]);
       }
     } catch {
@@ -557,7 +587,24 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           <button className="btn ghost menu-btn" aria-label="Открыть коллекции" onClick={() => setMenuOpen((v) => !v)}>☰</button>
           <div className="title-wrap">
             <h1>{title}</h1>
-            <p>{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
+            <p>{selectedTag ? `#${selectedTag} · ` : ''}{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
+          </div>
+          {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
+          {active === 'all' && <select className="date-sort" aria-label="Сортировка ленты" value={feedOrder} onChange={(event) => setFeedOrder(event.target.value as 'newest' | 'oldest')}>
+            <option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option>
+          </select>}
+          <div className="reward-control">
+            <button className="reward-button" aria-expanded={rewardsOpen} onClick={() => setRewardsOpen((value) => !value)}><span>🏆</span><b>{progress?.xp || 0} XP</b></button>
+            {rewardsOpen && <>
+              <button className="menu-shield" aria-label="Закрыть награды" onClick={() => setRewardsOpen(false)} />
+              <div className="rewards-menu">
+                <div className="rewards-head"><div><small>Уровень {progress?.level || 1}</small><b>{progress?.xp || 0} XP</b></div><span>🏆</span></div>
+                <div className="xp-track"><i style={{ width: `${Math.min(100, ((progress?.xp || 0) / (progress?.nextLevelXp || 100)) * 100)}%` }} /></div>
+                <div className="achievement-list">{progress?.achievements.map((achievement) => <div key={achievement.key} className={'achievement' + (achievement.unlocked ? ' unlocked' : '')}>
+                  <span>{achievement.icon}</span><div><b>{achievement.title}</b><small>{achievement.description}</small><em>{achievement.unlocked ? `Получено · +${achievement.xp} XP` : `${achievement.progress}/${achievement.target}`}</em></div>
+                </div>)}</div>
+              </div>
+            </>}
           </div>
           <button className={'btn ghost move-toggle' + (moveMode ? ' on' : '')} aria-pressed={moveMode}
             onClick={() => setMoveMode((value) => !value)}>{moveMode ? 'Готово' : 'Переместить'}</button>
@@ -596,11 +643,14 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
         <div className="scroll" onPointerDown={startSelection}>
           <div ref={gridRef} className="grid">
-            {active === 'all' && collections.map((collection) => {
+            {feedEntries.map((entry) => {
+              if (entry.type === 'collection') {
+                const collection = entry.value;
               const covers = items.filter((item) => item.collection_id === collection.id && (item.thumb || item.src)).slice(0, 3);
               const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
               return <div key={`board-${collection.id}`} className="grid-item collection-board-item" style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
-                <button className="grid-item-content collection-board" onClick={() => setActive(collection.id)}>
+                <div className="grid-item-content collection-board">
+                  <button className="board-open" onClick={() => setActive(collection.id)} aria-label={`Открыть ${collection.name}`} />
                   <span className="board-covers">
                     {covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)}
                     {!covers.length && <span className="board-empty" style={{ background: collection.color }} />}
@@ -608,10 +658,11 @@ export default function Wall({ initialCollections, initialItems }: Props) {
                   </span>
                   <strong>{collection.name}</strong>
                   <small>{countOf(collection.id)} {plural(countOf(collection.id), 'элемент', 'элемента', 'элементов')}</small>
-                </button>
+                  <button className="board-menu" aria-label="Редактировать коллекцию" onClick={() => setCollModal(collection)}>•••</button>
+                </div>
               </div>;
-            })}
-            {visible.map((it) => {
+              }
+              const it = entry.value;
               const blockSpan = isBlock(it) ? elementSize(it.display_size) === 'L' ? 3 : elementSize(it.display_size) === 'M' ? 2 : 1 : 1;
               const span = Math.min(blockSpan, gridMetrics.columns);
               const itemWidth = gridMetrics.width ? gridMetrics.width * span / gridMetrics.columns : 0;
@@ -772,6 +823,10 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           </div>
         )}
 
+        {!!item.tags?.length && <div className="card-tags">{item.tags.map((tag) => <button key={tag} onClick={(event) => {
+          event.stopPropagation(); setSelectedTag(tag); setActive('all');
+        }}>#{tag}</button>)}</div>}
+
         <button className={'star' + (item.fav ? ' on' : '')} aria-label={item.fav ? 'Убрать из избранного' : 'Добавить в избранное'}
           onClick={(e) => { e.stopPropagation(); patch(item.id, { fav: !item.fav }); }}>
           {item.fav ? '★' : '☆'}
@@ -846,7 +901,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const close = () => setAiQueue((p) => p.slice(1));
     const apply = async () => {
       const cleanTitle = name.trim() || suggestion.title;
-      await patch(suggestion.itemId, { title: cleanTitle, note: suggestion.description });
+      await patch(suggestion.itemId, { title: cleanTitle, note: suggestion.description, tags: suggestion.tags });
       if (selected) {
         let collection = collections.find((c) => c.name.toLocaleLowerCase() === selected.toLocaleLowerCase());
         if (!collection) {
@@ -872,6 +927,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           <h3>Как назвать и куда положить?</h3>
           <div className="field"><label>Название карточки</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
           <p className="ai-description">{suggestion.description}</p>
+          <div className="ai-tags">{suggestion.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>
           <div className="field"><label>ИИ предлагает коллекции</label>
             <div className="ai-options">
               {suggestion.collections.map((option) => {
@@ -892,6 +948,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const [c, setC] = useState(item.collection_id || '');
     const [size, setSize] = useState<ElementSize>(elementSize(item.display_size));
     const [textStyle, setTextStyle] = useState<TextStyle>(item.text_style || 'p');
+    const [tags, setTags] = useState((item.tags || []).join(', '));
 
     return (
       <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
@@ -906,6 +963,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
               <option value="">— без коллекции —</option>
               {collections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select></div>
+          <div className="field"><label>Теги</label><input value={tags} placeholder="дизайн, одежда, минимализм" onChange={(event) => setTags(event.target.value)} /></div>
           {isBlock(item) && <div className="field"><label>Размер элемента</label><select value={size} onChange={(e) => setSize(e.target.value as ElementSize)}>
             <option value="S">S — одна колонка</option><option value="M">M — две колонки</option><option value="L">L — три колонки</option>
           </select></div>}
@@ -914,7 +972,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           </div></div>}
           <div className="modal-foot">
             <button className="btn ghost" onClick={() => setEditing(null)}>Отмена</button>
-            <button className="btn" onClick={() => { patch(item.id, { title: t, note: n, collectionId: c || null, ...(isBlock(item) ? { displaySize: size } : {}), textStyle }); setEditing(null); }}>Сохранить</button>
+            <button className="btn" onClick={() => { patch(item.id, { title: t, note: n, tags: tags.split(',').map((tag) => tag.trim().toLocaleLowerCase()).filter(Boolean), collectionId: c || null, ...(isBlock(item) ? { displaySize: size } : {}), textStyle }); setEditing(null); }}>Сохранить</button>
           </div>
         </div>
       </div>

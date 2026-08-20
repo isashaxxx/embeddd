@@ -66,7 +66,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .coll.active .coll-dot{background:var(--accent)}
 .coll-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .coll-count{font-family:var(--font-mono),monospace;font-size:11px;color:var(--muted)}
-.coll-edit{opacity:0;font-size:13px;line-height:1;padding:2px 4px;border-radius:6px}
+.coll-edit{opacity:.42;font-size:13px;line-height:1;padding:2px 4px;border-radius:6px}
 .coll:hover .coll-edit{opacity:.55}
 .coll-edit:hover{opacity:1 !important;background:rgba(255,255,255,.2)}
 .add-coll{
@@ -99,6 +99,16 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .move-toggle{margin-left:auto}
 .move-toggle.on{background:var(--accent);border-color:var(--accent);color:var(--ink)}
 .move-toggle+.ai-control{margin-left:0}
+.date-sort{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:11px;outline:none}
+.tag-filter{padding:8px 11px;border-radius:999px;background:var(--accent);font-size:11px;font-weight:600}
+.reward-control{position:relative;z-index:8}
+.reward-button{height:36px;display:flex;align-items:center;gap:6px;padding:0 11px;border-radius:999px;background:var(--hover);white-space:nowrap}
+.reward-button b{font-size:11px}.reward-button span{font-size:15px}
+.rewards-menu{position:absolute;z-index:7;right:0;top:calc(100% + 9px);width:330px;max-height:min(560px,calc(100vh - 90px));overflow:auto;padding:12px;background:#fff;border:1px solid var(--line-soft);border-radius:17px;box-shadow:0 22px 60px rgba(20,20,15,.18)}
+.rewards-head{display:flex;align-items:center;justify-content:space-between;padding:4px 3px 10px}.rewards-head div{display:flex;flex-direction:column}.rewards-head small{font-size:10px;color:var(--muted)}.rewards-head b{font-size:23px}.rewards-head>span{font-size:30px}
+.xp-track{height:7px;border-radius:99px;background:var(--hover);overflow:hidden;margin-bottom:13px}.xp-track i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
+.achievement-list{display:grid;gap:6px}.achievement{display:flex;align-items:center;gap:10px;padding:9px;border-radius:12px;background:var(--hover);opacity:.48}.achievement.unlocked{opacity:1;background:rgba(198,240,74,.16)}
+.achievement>span{width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:#fff;font-size:18px}.achievement>div{min-width:0;display:flex;flex:1;flex-direction:column}.achievement b{font-size:12px}.achievement small{margin-top:2px;color:var(--muted);font-size:10px}.achievement em{margin-top:4px;color:var(--muted);font-family:var(--font-mono),monospace;font-size:9px;font-style:normal}.achievement.unlocked em{color:#638000}
 .menu-btn{display:none}
 .ai-control{position:relative;margin-left:auto;z-index:8}
 .ai-mode-button{display:flex;align-items:center;gap:7px;padding:9px 12px;border:0;border-radius:999px;background:var(--hover);color:var(--muted);font-size:11px;white-space:nowrap}
@@ -134,7 +144,10 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .grid{display:block;position:relative;width:calc(100% + 16px);min-height:1px;margin:0 -8px;container-type:inline-size}
 .grid-item{display:block;position:absolute;z-index:1;width:50%;padding:0 8px 24px;box-sizing:border-box}
 .grid-item-content{position:relative;width:100%}
-.collection-board{display:block;width:100%;text-align:left;cursor:pointer}
+.collection-board{display:block;width:100%;text-align:left;position:relative}
+.board-open{position:absolute;inset:0;z-index:2;width:100%;border-radius:18px}
+.board-menu{position:absolute;right:7px;bottom:0;z-index:3;padding:4px 5px;border-radius:7px;color:var(--muted);font-size:13px;letter-spacing:1px}
+.board-menu:hover{background:var(--hover);color:var(--ink)}
 .board-covers{position:relative;display:block;width:100%;aspect-ratio:16/10;border-radius:18px;overflow:hidden;background:var(--hover)}
 .board-cover,.board-empty{position:absolute;display:block;object-fit:cover}
 .board-cover.cover-1{inset:0 34% 0 0;width:66%;height:100%}
@@ -208,6 +221,10 @@ button{cursor:pointer;border:none;background:none;padding:0}
   font-family:var(--font-mono),monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
   padding:3px 6px;border-radius:5px;background:rgba(20,20,15,.06);color:var(--muted);white-space:nowrap;
 }
+.card-tags{display:flex;flex-wrap:wrap;gap:4px;padding:5px 8px 1px;position:relative;z-index:4}
+.card-tags button,.ai-tags span{padding:4px 7px;border-radius:999px;background:var(--hover);color:var(--muted);font-size:9px;line-height:1.1}
+.card-tags button:hover{background:var(--accent);color:var(--ink)}
+.ai-tags{display:flex;flex-wrap:wrap;gap:5px;margin:-4px 0 14px}.ai-tags span{font-size:10px}
 .tools{
   position:absolute;top:8px;right:8px;display:flex;gap:4px;opacity:0;
   transition:opacity .14s;z-index:4;
@@ -366,6 +383,8 @@ button{cursor:pointer;border:none;background:none;padding:0}
   .topbar{flex-wrap:wrap;padding:12px 14px}
   .menu-btn{display:inline-flex}
   .title-wrap{flex:1}
+  .date-sort{order:5;max-width:140px}.reward-button b{display:none}
+  .rewards-menu{position:fixed;left:10px;right:10px;top:64px;width:auto}
   .scroll{padding:14px 14px 90px}
   .element-menu{position:fixed;left:14px;right:14px;top:70px;width:auto;max-height:calc(100vh - 90px);overflow:auto}
   .ai-mode-button{font-size:0;gap:0}
