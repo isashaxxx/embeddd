@@ -701,8 +701,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               onDragOver={(event) => { if (!event.dataTransfer.types.includes('application/x-embeddd-board')) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setProjectDrop(project.id); }}
               onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setProjectDrop(null); }}
               onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const boardId = event.dataTransfer.getData('application/x-embeddd-board') || event.dataTransfer.getData('text/plain') || draggingBoard; if (boardId) void moveBoardToProject(boardId, project.id); setDraggingBoard(null); setProjectDrop(null); }}>
-              <button className="project-row" onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/projects/${project.slug}`); }}>
-                <span style={{ background: project.color }} /> <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
+              <button className="project-row project-heading" onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/projects/${project.slug}`); }}>
+                <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
               </button>
               <div className="project-tree-boards">{collections.filter((board) => board.project_id === project.id).map((board) => <NavRow key={board.id} id={board.id} name={board.name} color={board.color} count={countOf(board.id)} coll={board} compact />)}</div>
             </div>)}
