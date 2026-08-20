@@ -12,8 +12,9 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [collections, setCollections] = useState(initialCollections);
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<Active>('all');
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<Active | null>(null);
+  // Drag state lives in refs: a React render during native HTML drag cancels
+  // the browser's drag session because Card is intentionally scoped here.
+  const dragIdRef = useRef<string | null>(null);
   const [editing, setEditing] = useState<Item | null>(null);
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -265,16 +266,16 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   useEffect(() => {
     const enter = (e: DragEvent) => {
-      if (dragId) return;
+      if (dragIdRef.current) return;
       if (![...(e.dataTransfer?.types || [])].some((t) => t === 'Files' || t === 'text/uri-list')) return;
       dragDepth.current++;
       setDropping(true);
     };
     const leave = () => { if (--dragDepth.current <= 0) { dragDepth.current = 0; setDropping(false); } };
-    const over = (e: DragEvent) => { if (!dragId) e.preventDefault(); };
+    const over = (e: DragEvent) => { if (!dragIdRef.current) e.preventDefault(); };
     const drop = (e: DragEvent) => {
       dragDepth.current = 0; setDropping(false);
-      if (dragId) return;
+      if (dragIdRef.current) return;
       e.preventDefault();
       const files = [...(e.dataTransfer?.files || [])];
       if (files.length) return addFiles(files);
@@ -389,18 +390,19 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   function NavRow({ id, name, color, count, coll }: { id: Active; name: string; color?: string; count: number; coll?: Collection }) {
     return (
       <div
-        className={'coll' + (active === id ? ' active' : '') + (dropTarget === id ? ' drop' : '')}
+        className={'coll' + (active === id ? ' active' : '')}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('.coll-edit')) return;
           setActive(id); setMenuOpen(false);
         }}
-        onDragOver={(e) => { if (!dragId) return; e.preventDefault(); setDropTarget(id); }}
-        onDragLeave={() => setDropTarget(null)}
+        onDragOver={(e) => { if (!dragIdRef.current) return; e.preventDefault(); e.currentTarget.classList.add('drop'); }}
+        onDragLeave={(e) => e.currentTarget.classList.remove('drop')}
         onDrop={(e) => {
-          setDropTarget(null);
-          if (!dragId) return;
+          e.currentTarget.classList.remove('drop');
+          const sourceId = dragIdRef.current || e.dataTransfer.getData('application/x-embeddd-item');
+          if (!sourceId) return;
           e.preventDefault(); e.stopPropagation();
-          moveTo(dragId, id);
+          moveTo(sourceId, id);
         }}
       >
         <span className="coll-dot" style={color ? { background: color } : undefined} />
@@ -420,16 +422,22 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
     return (
       <div
-        className={'card' + (dragId === item.id ? ' dragging' : '') + (edge ? ` insert-${edge}` : '')}
+        className={'card' + (edge ? ` insert-${edge}` : '')}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('application/x-embeddd-item', item.id);
-          setDragId(item.id);
+          dragIdRef.current = item.id;
+          e.currentTarget.classList.add('dragging');
         }}
-        onDragEnd={() => { setDragId(null); setEdge(''); }}
+        onDragEnd={(e) => {
+          dragIdRef.current = null;
+          e.currentTarget.classList.remove('dragging');
+          document.querySelectorAll('.coll.drop').forEach((el) => el.classList.remove('drop'));
+          setEdge('');
+        }}
         onDragOver={(e) => {
-          const sourceId = dragId || e.dataTransfer.getData('application/x-embeddd-item');
+          const sourceId = dragIdRef.current || e.dataTransfer.getData('application/x-embeddd-item');
           if (!sourceId || sourceId === item.id) return;
           e.preventDefault(); e.stopPropagation();
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -437,7 +445,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         }}
         onDragLeave={() => setEdge('')}
         onDrop={(e) => {
-          const sourceId = dragId || e.dataTransfer.getData('application/x-embeddd-item');
+          const sourceId = dragIdRef.current || e.dataTransfer.getData('application/x-embeddd-item');
           if (!sourceId || sourceId === item.id) return;
           e.preventDefault(); e.stopPropagation();
           reorder(sourceId, item.id, edge === 'after');
