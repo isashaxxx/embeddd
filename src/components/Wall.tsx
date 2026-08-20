@@ -358,6 +358,15 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   }
 
   async function placeAutomatically(item: Item, result: AiSuggestion) {
+    // A board explicitly chosen by the user always wins over AI auto-placement.
+    // AI may enrich the card, but silently moving a freshly uploaded item makes
+    // it look as if the upload failed in the currently open board.
+    if (item.collection_id) {
+      await patch(item.id, { title: result.title, note: result.description, tags: result.tags });
+      say('ИИ добавил название и теги');
+      return;
+    }
+
     const existingOption = result.collections.find((name) => collections.some((c) => c.name.toLocaleLowerCase() === name.toLocaleLowerCase()));
     const collectionName = existingOption || result.collections[0];
     let collection = collections.find((c) => c.name.toLocaleLowerCase() === collectionName.toLocaleLowerCase());
