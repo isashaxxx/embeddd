@@ -171,7 +171,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .pin-card{background:transparent;border:0;border-radius:0;overflow:visible;box-shadow:none}
 .pin-card:hover{box-shadow:none;transform:none}
 .move-mode .pin-card,.move-mode .block-card{cursor:grab;touch-action:none}
-.move-mode .muuri-item-dragging .card{cursor:grabbing}
+.move-mode .muuri-item-dragging .card{cursor:grab}
 .pin-card>img.media,.pin-card>video.media{border-radius:18px}
 .pin-card .media.crop-compact{aspect-ratio:4/5;object-fit:cover}
 .pin-card .media.crop-portrait{aspect-ratio:2/3;object-fit:cover}
@@ -254,7 +254,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
   font-size:10px;letter-spacing:0;line-height:1;opacity:0;transition:opacity .14s;z-index:5;white-space:nowrap;user-select:none;
 }
 .grip span{font-size:13px;margin-right:4px;vertical-align:-1px}
-.grip:active{cursor:grabbing}
+.grip:active{cursor:grab}
 .move-mode .card:hover .grip{opacity:1}
 .resize{
   position:absolute;bottom:0;left:0;right:0;height:12px;cursor:ns-resize;z-index:5;

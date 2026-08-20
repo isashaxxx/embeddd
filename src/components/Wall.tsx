@@ -10,8 +10,8 @@ type Active = 'all' | 'fav' | string;
 type NewElement = 'link' | 'text' | 'callout' | 'html';
 type ElementSize = 'S' | 'M' | 'L';
 type TextStyle = Item['text_style'];
-type AiSuggestion = { itemId: string; title: string; description: string; collections: string[]; tags: string[] };
-type AiMode = 'auto' | 'ask' | 'off';
+type AiSuggestion = { title: string; description: string; collections: string[]; tags: string[] };
+type AiMode = 'auto' | 'off';
 
 const BLOCK_KINDS = new Set(['text', 'heading', 'callout', 'html', 'divider']);
 const isBlock = (item: Item) => BLOCK_KINDS.has(item.kind);
@@ -41,10 +41,8 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
   const [newElement, setNewElement] = useState<NewElement | null>(null);
-  const [aiQueue, setAiQueue] = useState<AiSuggestion[]>([]);
   const [aiRunning, setAiRunning] = useState<string[]>([]);
-  const [aiMode, setAiMode] = useState<AiMode>('ask');
-  const [aiMenu, setAiMenu] = useState(false);
+  const [aiMode, setAiMode] = useState<AiMode>('auto');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [gridMetrics, setGridMetrics] = useState({ width: 0, columns: 2 });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -72,15 +70,14 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   }, [items.length, collections.length, taggedCount, say]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('embeddd:ai-mode') as AiMode | null;
-    if (saved === 'auto' || saved === 'ask' || saved === 'off') setAiMode(saved);
+    const saved = localStorage.getItem('embeddd:ai-mode');
+    setAiMode(saved === 'off' ? 'off' : 'auto');
   }, []);
 
   function chooseAiMode(mode: AiMode) {
     setAiMode(mode);
-    setAiMenu(false);
     localStorage.setItem('embeddd:ai-mode', mode);
-    say(mode === 'auto' ? 'ИИ будет размещать сам' : mode === 'off' ? 'Автоматический ИИ выключен' : 'ИИ будет спрашивать');
+    say(mode === 'auto' ? 'ИИ включён — всё сделает сам' : 'ИИ выключен');
   }
 
   /* ---------------- данные ---------------- */
@@ -322,7 +319,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     say('Карточки удалены');
   }
 
-  async function placeAutomatically(item: Item, result: Omit<AiSuggestion, 'itemId'>) {
+  async function placeAutomatically(item: Item, result: AiSuggestion) {
     const existingOption = result.collections.find((name) => collections.some((c) => c.name.toLocaleLowerCase() === name.toLocaleLowerCase()));
     const collectionName = existingOption || result.collections[0];
     let collection = collections.find((c) => c.name.toLocaleLowerCase() === collectionName.toLocaleLowerCase());
@@ -342,7 +339,10 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   }
 
   async function analyzeImage(item: Item, manual = false) {
-    if (!manual && aiMode === 'off') return;
+    if (aiMode === 'off') {
+      if (manual) say('ИИ выключен');
+      return;
+    }
     if (aiRunning.includes(item.id)) return;
     setAiRunning((p) => [...p, item.id]);
     try {
@@ -353,11 +353,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       });
       const result = await res.json();
       if (!res.ok) return say(result.error || 'ИИ-анализ не сработал');
-      if (!manual && aiMode === 'auto') await placeAutomatically(item, result);
-      else {
-        await patch(item.id, { title: result.title, tags: result.tags });
-        setAiQueue((p) => [...p, { itemId: item.id, ...result }]);
-      }
+      await placeAutomatically(item, result);
     } catch {
       say('Не удалось связаться с ИИ');
     } finally {
@@ -368,8 +364,10 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   async function addFiles(files: File[]) {
     const list = files.filter((f) => /^(image|video)\//.test(f.type));
     if (!list.length) return say('Нужны картинки или видео');
+    const destination = targetCollection();
 
     setUpload({ done: 0, total: list.length });
+    let succeeded = 0;
     for (let n = 0; n < list.length; n++) {
       const file = list[n];
       try {
@@ -381,33 +379,42 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         let contentType = file.type;
 
         if (!isVideo) {
-          const full = await shrink(file, 1800);
-          const thumb = await shrink(file, 700, 0.75);
-          body = full.blob; thumbBlob = thumb.blob;
-          width = full.width; height = full.height;
-          ext = 'webp'; contentType = 'image/webp';
+          try {
+            const full = await shrink(file, 1800);
+            const thumb = await shrink(file, 700, 0.75);
+            body = full.blob; thumbBlob = thumb.blob;
+            width = full.width; height = full.height;
+            ext = 'webp'; contentType = 'image/webp';
+          } catch {
+            body = file;
+            thumbBlob = null;
+          }
         } else {
           const d = await videoSize(file);
           width = d.width; height = d.height;
         }
 
-        const signed = await (
-          await fetch('/api/upload-url', {
+        const signedResponse = await fetch('/api/upload-url', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ ext, contentType, withThumb: !isVideo }),
-          })
-        ).json();
+            body: JSON.stringify({ ext, contentType, withThumb: !isVideo && !!thumbBlob }),
+          });
+        if (!signedResponse.ok) throw new Error((await signedResponse.json().catch(() => null))?.error || 'Не удалось подготовить загрузку');
+        const signed = await signedResponse.json();
+        if (!signed.putUrl || !signed.src) throw new Error('Хранилище не вернуло адрес загрузки');
 
-        await fetch(signed.putUrl, { method: 'PUT', body, headers: { 'content-type': contentType } });
-        if (thumbBlob && signed.thumbPutUrl)
-          await fetch(signed.thumbPutUrl, { method: 'PUT', body: thumbBlob, headers: { 'content-type': 'image/webp' } });
+        const fullUpload = await fetch(signed.putUrl, { method: 'PUT', body, headers: { 'content-type': contentType } });
+        if (!fullUpload.ok) throw new Error(`Хранилище отклонило файл (${fullUpload.status})`);
+        if (thumbBlob && signed.thumbPutUrl) {
+          const thumbUpload = await fetch(signed.thumbPutUrl, { method: 'PUT', body: thumbBlob, headers: { 'content-type': 'image/webp' } });
+          if (!thumbUpload.ok) throw new Error(`Не загрузилось превью (${thumbUpload.status})`);
+        }
 
         const res = await fetch('/api/items', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            collectionId: targetCollection(),
+            collectionId: destination,
             upload: {
               kind: isVideo ? 'video' : 'image',
               key: signed.key, thumbKey: signed.thumbKey,
@@ -416,16 +423,18 @@ export default function Wall({ initialCollections, initialItems }: Props) {
             },
           }),
         });
+        if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Карточка не создалась');
         const real: Item = await res.json();
         setItems((p) => [real, ...p]);
+        succeeded++;
         if (!isVideo && aiMode !== 'off') void analyzeImage(real);
-      } catch {
-        say('Файл не загрузился: ' + file.name);
+      } catch (error) {
+        say(`${file.name}: ${error instanceof Error ? error.message : 'файл не загрузился'}`);
       }
       setUpload({ done: n + 1, total: list.length });
     }
     setUpload(null);
-    say(list.length + ' в стене');
+    if (succeeded) say(`${succeeded} ${succeeded === 1 ? 'файл добавлен' : 'файла добавлено'}`);
   }
 
   async function patch(id: string, data: Partial<Record<string, unknown>>) {
@@ -515,7 +524,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       if (/^https?:\/\/|^www\./i.test(txt)) { e.preventDefault(); addLink(txt); }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setLightbox(null); setNewElement(null); setElementMenu(false); setAiMenu(false); }
+      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setLightbox(null); setNewElement(null); setElementMenu(false); }
     };
     document.addEventListener('paste', onPaste);
     document.addEventListener('keydown', onKey);
@@ -608,19 +617,10 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           </div>
           <button className={'btn ghost move-toggle' + (moveMode ? ' on' : '')} aria-pressed={moveMode}
             onClick={() => setMoveMode((value) => !value)}>{moveMode ? 'Готово' : 'Переместить'}</button>
-          <div className="ai-control">
-            <button className={'ai-mode-button mode-' + aiMode} aria-expanded={aiMenu} onClick={() => setAiMenu((v) => !v)}>
-              <span>AI</span>{aiMode === 'auto' ? 'Размещает сам' : aiMode === 'ask' ? 'Спрашивает' : 'Выключен'}
-            </button>
-            {aiMenu && <>
-              <button className="menu-shield" aria-label="Закрыть меню ИИ" onClick={() => setAiMenu(false)} />
-              <div className="ai-mode-menu">
-                <button className={aiMode === 'auto' ? 'on' : ''} onClick={() => chooseAiMode('auto')}><b>Размещай сам</b><small>Назвать и сразу разложить по коллекциям</small></button>
-                <button className={aiMode === 'ask' ? 'on' : ''} onClick={() => chooseAiMode('ask')}><b>Спрашивай</b><small>Показывать три варианта перед размещением</small></button>
-                <button className={aiMode === 'off' ? 'on danger' : 'danger'} onClick={() => chooseAiMode('off')}><b>Выключить ИИ</b><small>Не анализировать новые изображения</small></button>
-              </div>
-            </>}
-          </div>
+          <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'}
+            onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}>
+            <span>AI</span>{aiMode === 'auto' ? 'Включён' : 'Выключен'}
+          </button>
           <div className="add-element">
             {!!aiRunning.length && <span className="ai-status"><i /> ИИ смотрит {aiRunning.length > 1 ? aiRunning.length : ''}</span>}
             <button className="btn lime" aria-expanded={elementMenu} onClick={() => setElementMenu((v) => !v)}>＋ Элемент</button>
@@ -706,7 +706,6 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       {editing && <EditModal item={editing} />}
       {collModal && <CollModal />}
       {newElement && <NewElementModal kind={newElement} />}
-      {!!aiQueue.length && <AiCollectionModal suggestion={aiQueue[0]} />}
       {lightbox && <Lightbox />}
 
       {upload && (
@@ -890,53 +889,6 @@ export default function Wall({ initialCollections, initialItems }: Props) {
               : <textarea value={value} autoFocus rows={kind === 'html' ? 10 : 5} placeholder={kind === 'html' ? '<div>…</div>' : 'Начни писать…'} onChange={(e) => setValue(e.target.value)} />}
           </div>
           <div className="modal-foot"><button className="btn ghost" onClick={() => setNewElement(null)}>Отмена</button><button className="btn" onClick={submit}>Добавить</button></div>
-        </div>
-      </div>
-    );
-  }
-
-  function AiCollectionModal({ suggestion }: { suggestion: AiSuggestion }) {
-    const [selected, setSelected] = useState(suggestion.collections[0] || '');
-    const [name, setName] = useState(suggestion.title);
-    const close = () => setAiQueue((p) => p.slice(1));
-    const apply = async () => {
-      const cleanTitle = name.trim() || suggestion.title;
-      await patch(suggestion.itemId, { title: cleanTitle, note: suggestion.description, tags: suggestion.tags });
-      if (selected) {
-        let collection = collections.find((c) => c.name.toLocaleLowerCase() === selected.toLocaleLowerCase());
-        if (!collection) {
-          const colors = ['#C6F04A', '#FFB86B', '#87CEEB', '#D6B4FC', '#FF8F8F'];
-          const res = await fetch('/api/collections', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ name: selected, color: colors[collections.length % colors.length] }),
-          });
-          if (res.ok) {
-            collection = await res.json();
-            setCollections((p) => [...p, collection!]);
-          }
-        }
-        if (collection) await patch(suggestion.itemId, { collectionId: collection.id });
-      }
-      close();
-      say(selected ? 'ИИ разложил карточку' : 'Название сохранено');
-    };
-    return (
-      <div className="overlay on ai-overlay" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
-        <div className="modal ai-modal">
-          <div className="ai-kicker"><i /> Анализ готов</div>
-          <h3>Как назвать и куда положить?</h3>
-          <div className="field"><label>Название карточки</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <p className="ai-description">{suggestion.description}</p>
-          <div className="ai-tags">{suggestion.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>
-          <div className="field"><label>ИИ предлагает коллекции</label>
-            <div className="ai-options">
-              {suggestion.collections.map((option) => {
-                const exists = collections.some((c) => c.name.toLocaleLowerCase() === option.toLocaleLowerCase());
-                return <button key={option} className={selected === option ? 'on' : ''} onClick={() => setSelected(option)}><span>{option}</span><small>{exists ? 'существующая' : 'создать новую'}</small></button>;
-              })}
-            </div>
-          </div>
-          <div className="modal-foot"><button className="btn ghost" onClick={close}>Только название</button><button className="btn" onClick={apply}>{selected && !collections.some((c) => c.name.toLocaleLowerCase() === selected.toLocaleLowerCase()) ? 'Создать и переместить' : 'Применить'}</button></div>
         </div>
       </div>
     );
