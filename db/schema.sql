@@ -4,6 +4,8 @@ create table if not exists collections (
   name        text not null,
   color       text not null default '#C6F04A',
   position    double precision not null default 0,
+  access_mode text not null default 'private',
+  share_token text,
   created_at  timestamptz not null default now()
 );
 

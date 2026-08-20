@@ -3,6 +3,8 @@ export type Collection = {
   name: string;
   color: string;
   position: number;
+  access_mode: 'private' | 'link';
+  share_token: string | null;
 };
 
 export type Item = {

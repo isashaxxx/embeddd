@@ -77,7 +77,10 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   const targetCollection = () => (active === 'all' || active === 'fav' ? null : active);
 
-  const gridSignature = visible.map((item) => `${item.id}:${isBlock(item) ? elementSize(item.display_size) : 'pin'}`).sort().join('|');
+  const gridSignature = [
+    ...visible.map((item) => `${item.id}:${isBlock(item) ? elementSize(item.display_size) : 'pin'}`),
+    ...(active === 'all' ? collections.map((collection) => `board:${collection.id}`) : []),
+  ].sort().join('|');
 
   useEffect(() => {
     const grid = gridRef.current;
@@ -109,6 +112,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         dragEnabled: true,
         dragHandle: null,
         dragStartPredicate: (item, event) => {
+          if (item.getElement()?.classList.contains('collection-board-item')) return false;
           const target = event.target as HTMLElement | null;
           if (target?.closest('button, select, input, textarea, a, iframe, video, .resize')) return false;
           return MuuriGrid.ItemDrag.defaultStartPredicate(item, event, { distance: 5, delay: 0 });
@@ -435,24 +439,25 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   /* ---------------- коллекции ---------------- */
 
-  async function saveCollection(name: string, color: string) {
+  async function saveCollection(name: string, color: string, accessMode: Collection['access_mode']) {
     if (collModal === 'new') {
       const res = await fetch('/api/collections', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, color }),
+        body: JSON.stringify({ name, color, accessMode }),
       });
       const c: Collection = await res.json();
       setCollections((p) => [...p, c]);
-      setActive(c.id);
+      setActive('all');
     } else if (collModal) {
       const id = collModal.id;
-      setCollections((p) => p.map((c) => (c.id === id ? { ...c, name, color } : c)));
-      fetch(`/api/collections/${id}`, {
+      const res = await fetch(`/api/collections/${id}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, color }),
+        body: JSON.stringify({ name, color, accessMode }),
       });
+      const updated: Collection = await res.json();
+      setCollections((p) => p.map((c) => (c.id === id ? updated : c)));
     }
     setCollModal(null);
   }
@@ -579,6 +584,21 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
         <div className="scroll" onPointerDown={startSelection}>
           <div ref={gridRef} className="grid">
+            {active === 'all' && collections.map((collection) => {
+              const covers = items.filter((item) => item.collection_id === collection.id && (item.thumb || item.src)).slice(0, 3);
+              const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
+              return <div key={`board-${collection.id}`} className="grid-item collection-board-item" style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
+                <button className="grid-item-content collection-board" onClick={() => setActive(collection.id)}>
+                  <span className="board-covers">
+                    {covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)}
+                    {!covers.length && <span className="board-empty" style={{ background: collection.color }} />}
+                    {collection.access_mode !== 'link' && <span className="board-lock" aria-label="Закрытая коллекция">🔒</span>}
+                  </span>
+                  <strong>{collection.name}</strong>
+                  <small>{countOf(collection.id)} {plural(countOf(collection.id), 'элемент', 'элемента', 'элементов')}</small>
+                </button>
+              </div>;
+            })}
             {visible.map((it) => {
               const blockSpan = isBlock(it) ? elementSize(it.display_size) === 'L' ? 3 : elementSize(it.display_size) === 'M' ? 2 : 1 : 1;
               const span = Math.min(blockSpan, gridMetrics.columns);
@@ -588,7 +608,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
               </div>
             })}
           </div>
-          {!visible.length && (
+          {!visible.length && !(active === 'all' && collections.length) && (
             <div className="empty">
               <h2>Пусто. Кидай сюда всё.</h2>
               <p>Нажми «+ Элемент», перетащи файлы в окно или просто вставь ссылку через <kbd>⌘V</kbd>.</p>
@@ -893,6 +913,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const c = collModal === 'new' ? null : (collModal as Collection);
     const [name, setName] = useState(c?.name || '');
     const [color, setColor] = useState(c?.color || '#C6F04A');
+    const [access, setAccess] = useState<Collection['access_mode']>(c?.access_mode || 'private');
 
     return (
       <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setCollModal(null); }}>
@@ -901,13 +922,17 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           <div className="field"><label>Название</label>
             <input value={name} autoFocus placeholder="Упаковка / Лендинги / Съёмки"
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && name.trim() && saveCollection(name.trim(), color)} /></div>
+              onKeyDown={(e) => e.key === 'Enter' && name.trim() && saveCollection(name.trim(), color, access)} /></div>
           <div className="field"><label>Цвет метки</label>
             <input type="color" value={color} style={{ height: 38, padding: 3 }} onChange={(e) => setColor(e.target.value)} /></div>
+          <div className="field"><label>Доступ</label><select value={access} onChange={(e) => setAccess(e.target.value as Collection['access_mode'])}>
+            <option value="private">Только я</option><option value="link">По ссылке</option>
+          </select></div>
+          {c?.share_token && access === 'link' && <button className="share-link" onClick={() => { navigator.clipboard.writeText(`${location.origin}/c/${c.share_token}`); say('Ссылка скопирована'); }}>Скопировать публичную ссылку</button>}
           <div className="modal-foot">
             {c && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteCollection(c)}>Удалить</button>}
             <button className="btn ghost" onClick={() => setCollModal(null)}>Отмена</button>
-            <button className="btn" onClick={() => name.trim() && saveCollection(name.trim(), color)}>{c ? 'Сохранить' : 'Создать'}</button>
+            <button className="btn" onClick={() => name.trim() && saveCollection(name.trim(), color, access)}>{c ? 'Сохранить' : 'Создать'}</button>
           </div>
         </div>
       </div>

@@ -5,6 +5,8 @@ export async function proxy(req: NextRequest) {
   const ok = await verify(req.cookies.get(COOKIE)?.value);
   const { pathname } = req.nextUrl;
 
+  if (pathname.startsWith('/c/')) return NextResponse.next();
+
   if (ok && pathname === '/login') return NextResponse.redirect(new URL('/', req.url));
   if (ok) return NextResponse.next();
 
@@ -15,5 +17,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!login|api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.svg).*)'],
+  matcher: ['/((?!login|api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.svg|logo.svg).*)'],
 };
