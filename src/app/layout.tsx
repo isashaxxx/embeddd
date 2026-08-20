@@ -14,8 +14,10 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const mediaOrigin = process.env.R2_PUBLIC_URL;
   return (
     <html lang="ru">
+      {mediaOrigin && <head><link rel="preconnect" href={mediaOrigin} crossOrigin="anonymous" /></head>}
       <body>{children}</body>
     </html>
   );

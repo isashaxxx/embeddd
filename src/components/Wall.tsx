@@ -1,6 +1,7 @@
 'use client';
 
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
+import type Muuri from 'muuri';
 import type { Collection, Item } from '@/lib/types';
 import { shrink, videoSize } from '@/lib/resize';
 
@@ -16,9 +17,6 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [collections, setCollections] = useState(initialCollections);
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<Active>('all');
-  // Drag state lives in refs: a React render during native HTML drag cancels
-  // the browser's drag session because Card is intentionally scoped here.
-  const dragIdRef = useRef<string | null>(null);
   const [editing, setEditing] = useState<Item | null>(null);
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -39,6 +37,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const selectionBoxRef = useRef<HTMLDivElement>(null);
   const selectionIdsRef = useRef<Set<string>>(new Set());
   const gridRef = useRef<HTMLDivElement>(null);
+  const muuriRef = useRef<Muuri | null>(null);
 
   const say = useCallback((msg: string, undo?: () => void) => {
     setToast({ msg, undo });
@@ -68,44 +67,86 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   const targetCollection = () => (active === 'all' || active === 'fav' ? null : active);
 
-  // Variable-width masonry. Every card is placed in the lowest contiguous
-  // run of columns that can fit its XS-XL span, so later cards fill holes.
+  const gridSignature = visible.map((item) => `${item.id}:${item.display_size}`).join('|');
+
+  // Muuri owns geometry and sorting. React owns content and persistence.
   useEffect(() => {
     const grid = gridRef.current;
     if (!grid) return;
+    let cancelled = false;
+    let observer: ResizeObserver | null = null;
     let frame = 0;
-    const layout = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const columns = window.innerWidth <= 520 ? 4 : window.innerWidth <= 820 ? 6 : 12;
-        const gap = window.innerWidth <= 820 ? 10 : 14;
-        const unit = (grid.clientWidth - gap * (columns - 1)) / columns;
-        const heights = Array(columns).fill(0) as number[];
-        const cards = [...grid.querySelectorAll<HTMLElement>('[data-card-id]')];
 
-        for (const card of cards) {
-          const span = Math.min(columns, Math.max(1, Number(card.dataset.span) || 4));
-          let bestColumn = 0;
-          let bestY = Number.POSITIVE_INFINITY;
-          for (let column = 0; column <= columns - span; column++) {
-            const y = Math.max(...heights.slice(column, column + span));
-            if (y < bestY) { bestY = y; bestColumn = column; }
-          }
-          card.style.width = unit * span + gap * (span - 1) + 'px';
-          card.style.left = bestColumn * (unit + gap) + 'px';
-          card.style.top = bestY + 'px';
-          const bottom = bestY + card.offsetHeight + gap;
-          for (let column = bestColumn; column < bestColumn + span; column++) heights[column] = bottom;
-        }
-        grid.style.height = Math.max(0, ...heights) + 'px';
+    void import('muuri').then(({ default: MuuriGrid }) => {
+      if (cancelled || !grid.isConnected) return;
+      const instance = new MuuriGrid(grid, {
+        items: '.grid-item',
+        dragEnabled: true,
+        dragHandle: '.grip',
+        dragContainer: document.body,
+        layout: { fillGaps: true, horizontal: false, rounding: true },
+        layoutDuration: 260,
+        layoutEasing: 'ease-out',
+        dragSortHeuristics: { sortInterval: 45, minDragDistance: 6, minBounceBackAngle: 1 },
+        dragRelease: { duration: 240, easing: 'ease-out', useDragContainer: true },
+        dragPlaceholder: {
+          enabled: true,
+          createElement: () => { const el = document.createElement('div'); el.className = 'grid-placeholder'; return el; },
+        },
       });
+      muuriRef.current = instance;
+
+      instance.on('dragStart', (item) => {
+        item.getElement()?.classList.add('is-grabbed');
+        document.body.classList.add('grid-dragging');
+      });
+      instance.on('dragMove', (_item, event) => {
+        document.querySelectorAll('.coll.drop').forEach((el) => el.classList.remove('drop'));
+        const underPointer = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
+        underPointer?.closest<HTMLElement>('[data-collection-drop]')?.classList.add('drop');
+      });
+      instance.on('dragEnd', (item, event) => {
+        item.getElement()?.classList.remove('is-grabbed');
+        document.body.classList.remove('grid-dragging');
+        document.querySelectorAll('.coll.drop').forEach((el) => el.classList.remove('drop'));
+        const id = item.getElement()?.dataset.cardId;
+        const underPointer = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
+        const collectionTarget = underPointer?.closest<HTMLElement>('[data-collection-drop]')?.dataset.collectionDrop;
+        if (id && collectionTarget) moveTo(id, collectionTarget);
+        else persistGridOrder(instance.getItems().map((entry) => entry.getElement()?.dataset.cardId).filter(Boolean) as string[]);
+      });
+
+      const relayout = () => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => instance.refreshItems().layout());
+      };
+      observer = new ResizeObserver(relayout);
+      grid.querySelectorAll<HTMLElement>('.grid-item-content').forEach((item) => observer!.observe(item));
+      if (grid.parentElement) observer.observe(grid.parentElement);
+      relayout();
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      document.body.classList.remove('grid-dragging');
+      muuriRef.current?.destroy();
+      muuriRef.current = null;
     };
-    const observer = new ResizeObserver(layout);
-    if (grid.parentElement) observer.observe(grid.parentElement);
-    grid.querySelectorAll<HTMLElement>('[data-card-id]').forEach((card) => observer.observe(card));
-    layout();
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
-  });
+  }, [gridSignature]);
+
+  function persistGridOrder(ids: string[]) {
+    const orderedSet = new Set(ids);
+    setItems((current) => {
+      const byId = new Map(current.map((item) => [item.id, item]));
+      let cursor = 0;
+      return current.map((item) => orderedSet.has(item.id) ? byId.get(ids[cursor++])! : item);
+    });
+    void fetch('/api/items/reorder', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }),
+    });
+  }
 
   async function addLink(url: string) {
     const tempId = 'temp-' + Math.random().toString(36).slice(2);
@@ -159,8 +200,8 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       box.style.left = left + 'px'; box.style.top = top + 'px';
       box.style.width = right - left + 'px'; box.style.height = bottom - top + 'px';
       const hits = new Set<string>();
-      document.querySelectorAll<HTMLElement>('[data-card-id]').forEach((card) => {
-        const r = card.getBoundingClientRect();
+      document.querySelectorAll<HTMLElement>('.grid-item[data-card-id]').forEach((card) => {
+        const r = card.querySelector('.card')!.getBoundingClientRect();
         const hit = r.left < right && r.right > left && r.top < bottom && r.bottom > top;
         card.classList.toggle('selecting', hit);
         if (hit) hits.add(card.dataset.cardId!);
@@ -169,7 +210,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     };
     const up = () => {
       box.style.display = 'none';
-      document.querySelectorAll('.card.selecting').forEach((card) => card.classList.remove('selecting'));
+      document.querySelectorAll('.grid-item.selecting').forEach((card) => card.classList.remove('selecting'));
       setSelected(new Set(selectionIdsRef.current));
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
@@ -335,35 +376,6 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     }, 6000);
   }
 
-  /* ---------------- перестановка ---------------- */
-
-  function reorder(fromId: string, toId: string, after: boolean) {
-    const list = [...items];
-    const from = list.findIndex((i) => i.id === fromId);
-    const to = list.findIndex((i) => i.id === toId);
-    if (from < 0 || to < 0) return;
-
-    const moved = list.splice(from, 1)[0];
-    const at = list.findIndex((i) => i.id === toId) + (after ? 1 : 0);
-    list.splice(at, 0, moved);
-
-    // дробная позиция между соседями — переиндексировать всю стену не надо
-    const prev = list[at - 1]?.position ?? Number(list[at + 1]?.position ?? 0) - 2;
-    const next = list[at + 1]?.position ?? Number(prev) + 2;
-    const position = (Number(prev) + Number(next)) / 2;
-    moved.position = position;
-
-    const collectionId = active === 'all' || active === 'fav' ? moved.collection_id : active;
-    moved.collection_id = collectionId;
-
-    setItems(list);
-    fetch(`/api/items/${fromId}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ position, collectionId }),
-    });
-  }
-
   function moveTo(itemId: string, target: Active) {
     const it = items.find((i) => i.id === itemId);
     if (!it) return;
@@ -431,16 +443,14 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   useEffect(() => {
     const enter = (e: DragEvent) => {
-      if (dragIdRef.current) return;
       if (![...(e.dataTransfer?.types || [])].some((t) => t === 'Files' || t === 'text/uri-list')) return;
       dragDepth.current++;
       setDropping(true);
     };
     const leave = () => { if (--dragDepth.current <= 0) { dragDepth.current = 0; setDropping(false); } };
-    const over = (e: DragEvent) => { if (!dragIdRef.current) e.preventDefault(); };
+    const over = (e: DragEvent) => e.preventDefault();
     const drop = (e: DragEvent) => {
       dragDepth.current = 0; setDropping(false);
-      if (dragIdRef.current) return;
       e.preventDefault();
       const files = [...(e.dataTransfer?.files || [])];
       if (files.length) return addFiles(files);
@@ -528,7 +538,9 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         <div className="scroll" onPointerDown={startSelection}>
           <div ref={gridRef} className="grid">
             {visible.map((it) => (
-              <Card key={it.id} item={it} />
+              <div key={it.id} className={`grid-item size-${(it.display_size || 'M').toLowerCase()}`} data-card-id={it.id}>
+                <div className="grid-item-content"><Card item={it} /></div>
+              </div>
             ))}
           </div>
           {!visible.length && (
@@ -584,19 +596,11 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   function NavRow({ id, name, color, count, coll }: { id: Active; name: string; color?: string; count: number; coll?: Collection }) {
     return (
       <div
+        data-collection-drop={id}
         className={'coll' + (active === id ? ' active' : '')}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('.coll-edit')) return;
           setActive(id); setMenuOpen(false);
-        }}
-        onDragOver={(e) => { if (!dragIdRef.current) return; e.preventDefault(); e.currentTarget.classList.add('drop'); }}
-        onDragLeave={(e) => e.currentTarget.classList.remove('drop')}
-        onDrop={(e) => {
-          e.currentTarget.classList.remove('drop');
-          const sourceId = dragIdRef.current || e.dataTransfer.getData('application/x-embeddd-item');
-          if (!sourceId) return;
-          e.preventDefault(); e.stopPropagation();
-          moveTo(sourceId, id);
         }}
       >
         <span className="coll-dot" style={color ? { background: color } : undefined} />
@@ -609,47 +613,13 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   function Card({ item }: { item: Item }) {
     const [playing, setPlaying] = useState(false);
-    const [edge, setEdge] = useState<'' | 'before' | 'after'>('');
     const boxRef = useRef<HTMLDivElement>(null);
 
     const isMedia = item.kind === 'image' || item.kind === 'video';
     const size = item.display_size || 'M';
-    const widthSpan: Record<CardSize, number> = { XS: 2, S: 3, M: 4, L: 6, XL: 8 };
-
     return (
       <div
-        data-card-id={item.id}
-        data-size={size}
-        data-span={widthSpan[size]}
-        className={'card size-' + size.toLowerCase() + (selected.has(item.id) ? ' selected' : '') + (edge ? ` insert-${edge}` : '')}
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('application/x-embeddd-item', item.id);
-          dragIdRef.current = item.id;
-          e.currentTarget.classList.add('dragging');
-        }}
-        onDragEnd={(e) => {
-          dragIdRef.current = null;
-          e.currentTarget.classList.remove('dragging');
-          document.querySelectorAll('.coll.drop').forEach((el) => el.classList.remove('drop'));
-          setEdge('');
-        }}
-        onDragOver={(e) => {
-          const sourceId = dragIdRef.current || e.dataTransfer.getData('application/x-embeddd-item');
-          if (!sourceId || sourceId === item.id) return;
-          e.preventDefault(); e.stopPropagation();
-          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          setEdge(e.clientY > r.top + r.height / 2 ? 'after' : 'before');
-        }}
-        onDragLeave={() => setEdge('')}
-        onDrop={(e) => {
-          const sourceId = dragIdRef.current || e.dataTransfer.getData('application/x-embeddd-item');
-          if (!sourceId || sourceId === item.id) return;
-          e.preventDefault(); e.stopPropagation();
-          reorder(sourceId, item.id, edge === 'after');
-          setEdge('');
-        }}
+        className={'card' + (selected.has(item.id) ? ' selected' : '')}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('button, iframe, video, .resize')) return;
           if (e.metaKey || e.ctrlKey || e.shiftKey || selected.size) {
@@ -662,18 +632,18 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         }}
       >
         {item.kind === 'image' && (
-          <img className="media" draggable={false} loading="lazy" src={item.thumb || item.src || ''} alt=""
+          <img className="media" draggable={false} loading="lazy" decoding="async" src={item.thumb || item.src || ''} alt=""
             style={item.width && item.height ? { aspectRatio: `${item.width}/${item.height}` } : undefined} />
         )}
 
-        {item.kind === 'video' && <video className="media" draggable={false} controls preload="metadata" src={item.src || ''} />}
+        {item.kind === 'video' && <video className="media" draggable={false} controls preload="none" src={item.src || ''} />}
 
         {item.kind === 'embed' && (
           <div ref={boxRef} className="embed-box"
             style={item.ratio ? { aspectRatio: `${(100 / item.ratio).toFixed(4)}` } : { height: (item.embed_h || 480) + 'px' }}>
             {item.thumb && !playing ? (
               <>
-                <img className="media" draggable={false} loading="lazy" src={item.thumb} alt=""
+                <img className="media" draggable={false} loading="lazy" decoding="async" src={item.thumb} alt=""
                   style={{ position: 'absolute', inset: 0, height: '100%', objectFit: 'cover' }} />
                 <button className="play" onClick={(e) => { e.stopPropagation(); setPlaying(true); }}><i /></button>
               </>
@@ -687,7 +657,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         {item.kind === 'link' && (
           item.thumb ? (
             <>
-              <img className="media" draggable={false} loading="lazy" src={item.thumb} alt="" />
+              <img className="media" draggable={false} loading="lazy" decoding="async" src={item.thumb} alt="" />
               <div className="meta">
                 <div className="meta-txt">
                   <div className="t">{item.title || item.host}</div>
@@ -733,7 +703,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           <button className="del" aria-label="Удалить карточку" onClick={(e) => { e.stopPropagation(); remove(item); }}>×</button>
         </div>
 
-        <div className="grip">⋮⋮</div>
+        <div className="grip" title="Переместить"><span>⠿</span> Переместить</div>
 
         {(item.kind === 'html' || (item.kind === 'embed' && !item.ratio)) && (
           <div className="resize" onPointerDown={(e) => {
