@@ -1,6 +1,11 @@
 'use client';
 
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
+import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import type Muuri from 'muuri';
 import type { Account, Collection, Item, Progress, Project } from '@/lib/types';
 import { shrink, videoPreview, videoSize } from '@/lib/resize';
@@ -37,7 +42,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [draggingBoard, setDraggingBoard] = useState<string | null>(null);
-  const [projectDrop, setProjectDrop] = useState<string | null>(null);
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -51,6 +55,11 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [menuOpen, setMenuOpen] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
   const [newElement, setNewElement] = useState<NewElement | null>(null);
+  const boardSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const [aiRunning, setAiRunning] = useState<string[]>([]);
   const [aiMode, setAiMode] = useState<AiMode>('auto');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -96,7 +105,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   /* ---------------- данные ---------------- */
 
-  const projectCollections = activeProject === 'all' ? collections : collections.filter((c) => c.project_id === activeProject);
+  const projectCollections = (activeProject === 'all' ? [...collections] : collections.filter((c) => c.project_id === activeProject)).sort((a, b) => Number(a.position) - Number(b.position));
+  const boardsForProject = (projectId: string | null) => collections.filter((board) => board.project_id === projectId).sort((a, b) => Number(a.position) - Number(b.position));
+  const unassignedBoards = boardsForProject(null);
   const projectCollectionIds = new Set(projectCollections.map((c) => c.id));
   const visible = items.filter((i) => {
     const inSection = active === 'archive' ? !!i.archived_at : !i.archived_at && (active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active);
@@ -585,6 +596,40 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     } else say(projectId ? 'Борд перемещён в проект' : 'Борд вынесен из проекта');
   }
 
+  async function finishBoardDrag(event: DragEndEvent) {
+    const boardId = String(event.active.id);
+    const over = event.over;
+    setDraggingBoard(null);
+    if (!over) return;
+    const targetContainer = String(over.data.current?.containerId || over.id).replace(/^container:/, '');
+    const targetProjectId = targetContainer === 'unassigned' ? null : targetContainer;
+    if (targetProjectId && !projects.some((project) => project.id === targetProjectId)) return;
+    const moving = collections.find((board) => board.id === boardId);
+    if (!moving) return;
+
+    const targetOriginal = boardsForProject(targetProjectId);
+    const sourceIndex = targetOriginal.findIndex((board) => board.id === boardId);
+    let insertAt = over.data.current?.type === 'board' ? targetOriginal.findIndex((board) => board.id === String(over.id)) : targetOriginal.length;
+    if (insertAt < 0) insertAt = targetOriginal.length;
+    if (sourceIndex >= 0 && sourceIndex < insertAt) insertAt--;
+    const ordered = targetOriginal.filter((board) => board.id !== boardId);
+    ordered.splice(Math.max(0, insertAt), 0, { ...moving, project_id: targetProjectId });
+    const positions = new Map(ordered.map((board, index) => [board.id, index]));
+    const snapshot = collections;
+    const next = collections.map((board) => positions.has(board.id) ? { ...board, project_id: targetProjectId, position: positions.get(board.id)! } : board);
+    setCollections(next);
+    try {
+      const responses = await Promise.all(ordered.map((board, position) => fetch(`/api/collections/${board.id}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: targetProjectId, position }),
+      })));
+      if (responses.some((response) => !response.ok)) throw new Error('board reorder failed');
+      say(moving.project_id === targetProjectId ? 'Порядок бордов сохранён' : targetProjectId ? 'Борд перемещён в проект' : 'Борд вынесен из проекта');
+    } catch {
+      setCollections(snapshot);
+      say('Не удалось сохранить перемещение');
+    }
+  }
+
   async function saveAccount(data: Partial<Record<string, unknown>>) {
     const response = await fetch('/api/account', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
     if (!response.ok) return say('Не удалось сохранить аккаунт');
@@ -694,20 +739,18 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <NavRow id="all" name="Всё" count={countOf('all')} />
             <NavRow id="fav" name="Избранное" count={countOf('fav')} />
             <NavRow id="archive" name="Архив" count={countOf('archive')} />
-            {projects.map((project) => <div key={project.id} className={'project-tree' + (projectDrop === project.id ? ' drop' : '')}
-              onDragEnter={(event) => { if (!event.dataTransfer.types.includes('application/x-embeddd-board')) return; event.preventDefault(); setProjectDrop(project.id); }}
-              onDragOver={(event) => { if (!event.dataTransfer.types.includes('application/x-embeddd-board')) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setProjectDrop(project.id); }}
-              onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setProjectDrop(null); }}
-              onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const boardId = event.dataTransfer.getData('application/x-embeddd-board') || event.dataTransfer.getData('text/plain') || draggingBoard; if (boardId) void moveBoardToProject(boardId, project.id); setDraggingBoard(null); setProjectDrop(null); }}>
+            <DndContext sensors={boardSensors} collisionDetection={closestCenter} onDragStart={(event) => setDraggingBoard(String(event.active.id))} onDragCancel={() => setDraggingBoard(null)} onDragEnd={(event) => void finishBoardDrag(event)}>
+            {projects.map((project) => { const projectBoards = boardsForProject(project.id); return <BoardDropZone key={project.id} id={project.id}>
               <button className="project-row project-heading" onClick={() => { setActiveProject(project.id); setActive('all'); }}>
                 <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
               </button>
-              <div className="project-tree-boards">{collections.filter((board) => board.project_id === project.id).map((board) => <NavRow key={board.id} id={board.id} name={board.name} color={board.color} count={countOf(board.id)} coll={board} />)}</div>
-            </div>)}
+              <SortableContext items={projectBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}><div className="project-tree-boards">{projectBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</div></SortableContext>
+            </BoardDropZone>; })}
             <button className="add-coll" onClick={() => setProjectModal('new')}><span>＋</span> Новый проект</button>
-            <div className="nav-label">Борды без проекта</div>
-            {collections.filter((c) => !c.project_id).map((c) => <NavRow key={c.id} id={c.id} name={c.name} color={c.color} count={countOf(c.id)} coll={c} />)}
+            <BoardDropZone id="unassigned"><div className="nav-label">Борды без проекта</div><SortableContext items={unassignedBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}>{unassignedBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</SortableContext></BoardDropZone>
             <button className="add-coll" onClick={() => setCollModal('new')}><span>＋</span> Новый борд</button>
+            <DragOverlay dropAnimation={{ duration: 160, easing: 'ease-out' }}>{draggingBoard ? <BoardRowVisual board={collections.find((board) => board.id === draggingBoard)!} count={countOf(draggingBoard)} overlay /> : null}</DragOverlay>
+            </DndContext>
           </>}
         </div>
         <div className="side-foot"><button className="account-entry" onClick={() => setAccountOpen(true)}>{account?.avatar_url ? <img src={account.avatar_url} alt="" /> : <span>{(account?.nickname || 'E').slice(0, 1).toUpperCase()}</span>}<div><b>{account?.nickname || 'Аккаунт'}</b><small>{account?.email || 'Настройки профиля'}</small></div><Icon name="settings" /></button></div>
@@ -849,9 +892,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   function NavRow({ id, name, color, count, coll, compact = false }: { id: Active; name: string; color?: string; count: number; coll?: Collection; compact?: boolean }) {
     return (
       <div
-        draggable={!!coll}
-        onDragStart={(event) => { if (!coll) return; setDraggingBoard(coll.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-embeddd-board', coll.id); event.dataTransfer.setData('text/plain', coll.id); }}
-        onDragEnd={() => { setDraggingBoard(null); setProjectDrop(null); }}
         data-collection-drop={id}
         className={'coll' + (active === id ? ' active' : '') + (compact ? ' compact' : '') + (draggingBoard === coll?.id ? ' board-dragging' : '')}
         onClick={(e) => {
@@ -1150,6 +1190,25 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 }
 
 /* ---------------- мелочи ---------------- */
+
+function BoardDropZone({ id, children }: { id: string; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `container:${id}`, data: { type: 'container', containerId: id } });
+  return <div ref={setNodeRef} className={'project-tree' + (isOver ? ' drop' : '')}>{children}</div>;
+}
+
+function BoardRowVisual({ board, count, overlay = false }: { board: Collection; count: number; overlay?: boolean }) {
+  return <div className={'coll board-row-visual' + (overlay ? ' board-overlay' : '')}>
+    <span className="coll-dot" style={{ background: board.color }} /><span className="coll-name">{board.name}</span><span className="coll-count">{count}</span><span className="board-grip" aria-hidden="true">⠿</span>
+  </div>;
+}
+
+function SortableBoardRow({ board, active, count, onOpen, onEdit }: { board: Collection; active: boolean; count: number; onOpen: () => void; onEdit: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: board.id, data: { type: 'board', containerId: board.project_id || 'unassigned' } });
+  const style: CSSProperties = { transform: CSS.Transform.toString(transform), transition };
+  return <div ref={setNodeRef} style={style} className={'coll sortable-board' + (active ? ' active' : '') + (isDragging ? ' board-dragging' : '')} onClick={onOpen} {...attributes} {...listeners}>
+    <span className="coll-dot" style={{ background: board.color }} /><span className="coll-name">{board.name}</span><span className="coll-count">{count}</span><button className="coll-edit" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }}>⋯</button><span className="board-grip" aria-hidden="true">⠿</span>
+  </div>;
+}
 
 function AutoVideo({ src, className, poster }: { src: string; className: string; poster?: string }) {
   const ref = useRef<HTMLVideoElement>(null);
