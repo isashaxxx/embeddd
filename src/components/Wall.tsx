@@ -460,20 +460,18 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   async function remove(item: Item) {
     const idx = items.findIndex((i) => i.id === item.id);
     setItems((p) => p.filter((i) => i.id !== item.id));
-    let cancelled = false;
-
-    say('Удалено', () => {
-      cancelled = true;
+    try {
+      const response = await fetch(`/api/items/${item.id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('delete failed');
+      say('Карточка удалена');
+    } catch {
       setItems((p) => {
         const next = [...p];
         next.splice(idx, 0, item);
         return next;
       });
-    });
-
-    setTimeout(() => {
-      if (!cancelled) fetch(`/api/items/${item.id}`, { method: 'DELETE' });
-    }, 6000);
+      say('Не удалось удалить карточку');
+    }
   }
 
   function moveTo(itemId: string, target: Active) {
@@ -612,20 +610,27 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
         <div className="brand"><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></div>
         <div className="nav">
-          <NavRow id="all" name="Всё" count={countOf('all')} />
-          <NavRow id="fav" name="Избранное" count={countOf('fav')} />
-          <div className="nav-label">Проекты</div>
-          {projects.map((project) => <button key={project.id} className={'project-row' + (activeProject === project.id ? ' on' : '')} onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/project/${project.slug}`); }}>
-            <span style={{ background: project.color }} /> <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
-          </button>)}
-          <button className="add-coll" onClick={() => setProjectModal('new')}><span>＋</span> Новый проект</button>
-          <div className="nav-label">Борды</div>
-          {projectCollections.map((c) => (
-            <NavRow key={c.id} id={c.id} name={c.name} color={c.color} count={countOf(c.id)} coll={c} />
-          ))}
-          <button className="add-coll" onClick={() => setCollModal('new')}>
-            <span style={{ fontSize: 15 }}>＋</span> Новый борд
-          </button>
+          {activeProject !== 'all' ? <>
+            <div className="project-workspace">
+              <button aria-label="Все проекты" onClick={() => { setActiveProject('all'); setActive('all'); router.push('/'); }}><Icon name="back" /></button>
+              <div><b>{projects.find((project) => project.id === activeProject)?.name}</b><small>{projectCollections.length} {plural(projectCollections.length, 'борд', 'борда', 'бордов')}</small></div>
+              <button aria-label="Настройки проекта" onClick={() => { const project = projects.find((value) => value.id === activeProject); if (project) setProjectModal(project); }}><Icon name="settings" /></button>
+            </div>
+            <div className="nav-label figma-pages"><span>Борды</span><button aria-label="Новый борд" onClick={() => setCollModal('new')}><Icon name="plus" /></button></div>
+            {projectCollections.map((c) => <NavRow key={c.id} id={c.id} name={c.name} color={c.color} count={countOf(c.id)} coll={c} />)}
+            <button className="add-coll" onClick={() => setCollModal('new')}><span>＋</span> Новый борд</button>
+          </> : <>
+            <NavRow id="all" name="Всё" count={countOf('all')} />
+            <NavRow id="fav" name="Избранное" count={countOf('fav')} />
+            <div className="nav-label">Проекты</div>
+            {projects.map((project) => <button key={project.id} className="project-row" onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/project/${project.slug}`); }}>
+              <span style={{ background: project.color }} /> <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
+            </button>)}
+            <button className="add-coll" onClick={() => setProjectModal('new')}><span>＋</span> Новый проект</button>
+            <div className="nav-label">Борды без проекта</div>
+            {collections.filter((c) => !c.project_id).map((c) => <NavRow key={c.id} id={c.id} name={c.name} color={c.color} count={countOf(c.id)} coll={c} />)}
+            <button className="add-coll" onClick={() => setCollModal('new')}><span>＋</span> Новый борд</button>
+          </>}
         </div>
         <div className="side-foot">
           <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); location.href = '/login'; }}>Выйти</button>
@@ -982,7 +987,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <input value={name} autoFocus placeholder="Упаковка / Лендинги / Съёмки"
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && name.trim() && saveCollection(name.trim(), color, access, projectId || null)} /></div>
-          <div className="field"><label>Проект</label><select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+          <div className="field"><label>{c ? 'Переместить в проект' : 'Проект'}</label><select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
             <option value="">Без проекта</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select></div>
           <div className="field"><label>Цвет метки</label>
@@ -1048,7 +1053,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
 /* ---------------- мелочи ---------------- */
 
-function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' }) {
+function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' }) {
   const paths: Record<typeof name, React.ReactNode> = {
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     close: <><path d="M6 6l12 12M18 6 6 18"/></>,
@@ -1057,6 +1062,8 @@ function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' |
     move: <><path d="M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4"/></>,
     check: <path d="m5 12 4 4L19 6"/>,
     back: <><path d="m15 18-6-6 6-6"/><path d="M9 12h11"/></>,
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
+    plus: <path d="M12 5v14M5 12h14"/>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }

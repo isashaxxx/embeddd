@@ -133,6 +133,10 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .project-row{width:100%;height:38px;padding:0 10px;border-radius:10px;display:flex;align-items:center;gap:9px;text-align:left;color:var(--muted)}
 .project-row:hover,.project-row.on{background:var(--hover);color:var(--ink)}
 .project-row>span{width:11px;height:11px;border-radius:4px}.project-row>b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:550}.project-row>i{font-style:normal;letter-spacing:1px;opacity:0}.project-row:hover>i{opacity:.65}
+.project-workspace{display:flex;align-items:center;gap:9px;margin:2px 0 14px;padding:5px 3px 12px;border-bottom:1px solid var(--line-soft)}
+.project-workspace>button{width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;border-radius:8px}.project-workspace>button:hover{background:var(--hover)}.project-workspace .ui-icon{width:18px;height:18px}
+.project-workspace>div{display:flex;flex:1;min-width:0;flex-direction:column}.project-workspace b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.project-workspace small{margin-top:2px;color:var(--muted);font-size:10px}
+.figma-pages{display:flex;align-items:center;justify-content:space-between}.figma-pages button{width:27px;height:27px;display:grid;place-items:center;border-radius:7px}.figma-pages button:hover{background:var(--hover)}.figma-pages .ui-icon{width:17px;height:17px}
 @keyframes ai-pulse{50%{opacity:.35;transform:scale(.7)}}
 .menu-shield{position:fixed;inset:0;z-index:6;cursor:default}
 .element-menu{
@@ -245,6 +249,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .tools .size-select{width:42px;height:28px;padding:0 4px;border:0;border-radius:8px;background:rgba(255,255,255,.94);font-family:var(--font-mono),monospace;font-size:9px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.16)}
 .tools button:disabled{opacity:.55;cursor:wait}
 .tools button.del:hover{background:var(--danger);color:#fff}
+.tools button.del{position:relative;z-index:2;pointer-events:auto}
 .star{
   position:absolute;top:8px;left:8px;width:28px;height:28px;border-radius:8px;
   display:flex;align-items:center;justify-content:center;font-size:14px;z-index:4;
