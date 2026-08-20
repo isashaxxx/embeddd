@@ -4,7 +4,7 @@ import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type Muuri from 'muuri';
 import type { Account, Collection, Item, Progress, Project } from '@/lib/types';
-import { shrink, videoSize } from '@/lib/resize';
+import { shrink, videoPreview, videoSize } from '@/lib/resize';
 
 type Props = { initialProjects: Project[]; initialCollections: Collection[]; initialItems: Item[]; initialActive?: string; initialProject?: string; initialPost?: string };
 type Active = 'all' | 'fav' | string;
@@ -422,14 +422,19 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             thumbBlob = null;
           }
         } else {
-          const d = await videoSize(file);
-          width = d.width; height = d.height;
+          try {
+            const preview = await videoPreview(file);
+            thumbBlob = preview.blob; width = preview.width; height = preview.height;
+          } catch {
+            const d = await videoSize(file);
+            width = d.width; height = d.height;
+          }
         }
 
         const signedResponse = await fetch('/api/upload-url', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ ext, contentType, withThumb: !isVideo && !!thumbBlob }),
+            body: JSON.stringify({ ext, contentType, withThumb: !!thumbBlob }),
           });
         if (!signedResponse.ok) throw new Error((await signedResponse.json().catch(() => null))?.error || 'Не удалось подготовить загрузку');
         const signed = await signedResponse.json();
@@ -876,7 +881,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       <div
         className={`card ${isBlock(item) ? 'block-card' : 'pin-card'}${selected.has(item.id) ? ' selected' : ''}`}
         onClick={(e) => {
-          if ((e.target as HTMLElement).closest('button, iframe, video, .resize')) return;
+          if ((e.target as HTMLElement).closest('button, iframe, .resize')) return;
           if (e.metaKey || e.ctrlKey || e.shiftKey || selected.size) {
             e.stopPropagation();
             setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; });
@@ -891,7 +896,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             style={item.width && item.height ? { aspectRatio: `${item.width}/${item.height}` } : undefined} />
         )}
 
-        {item.kind === 'video' && <AutoVideo className={`media crop-${crop}`} src={item.src || ''} />}
+        {item.kind === 'video' && <AutoVideo className={`media crop-${crop}`} src={item.src || ''} poster={item.thumb && item.thumb !== item.src ? item.thumb : undefined} />}
 
         {item.kind === 'embed' && (
           <div ref={boxRef} className="embed-box"
@@ -1130,7 +1135,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       <div className="lb on" onClick={(event) => { if (event.target === event.currentTarget) { setLightbox(null); router.back(); } }}>
         <button className="lb-back" aria-label="Назад" onClick={() => { setLightbox(null); router.back(); }}><Icon name="back" /></button>
         <div className="pin-detail">
-          <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} controls autoPlay /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}</div>
+          <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} poster={it.thumb && it.thumb !== it.src ? it.thumb : undefined} controls autoPlay playsInline preload="metadata" /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}</div>
           <div className="pin-detail-info">
             <h2>{it.title || 'Без названия'}</h2>
             <div className="description-field"><label>Описание</label>{editingDescription ? <textarea autoFocus value={description} placeholder="Добавить описание…" onChange={(event) => setDescription(event.target.value)} onBlur={() => { void patch(it.id, { note: description }); setEditingDescription(false); }} /> : <button className={'description-read' + (!description ? ' empty' : '')} onClick={() => setEditingDescription(true)}>{description || 'Добавить описание'}</button>}</div>
@@ -1150,7 +1155,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
 /* ---------------- мелочи ---------------- */
 
-function AutoVideo({ src, className }: { src: string; className: string }) {
+function AutoVideo({ src, className, poster }: { src: string; className: string; poster?: string }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [near, setNear] = useState(false);
   useEffect(() => {
@@ -1158,13 +1163,14 @@ function AutoVideo({ src, className }: { src: string; className: string }) {
     if (!video) return;
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) setNear(true);
-      if (entry.intersectionRatio >= .55) void video.play().catch(() => {});
-      else video.pause();
+      if (!entry.isIntersecting) video.pause();
     }, { rootMargin: '280px 0px', threshold: [0, .55] });
     observer.observe(video);
     return () => { observer.disconnect(); video.pause(); };
   }, []);
-  return <video ref={ref} className={className} draggable={false} muted loop playsInline preload="none" src={near ? src : undefined} />;
+  return <video ref={ref} className={className} draggable={false} muted loop playsInline poster={poster} preload={near ? 'metadata' : 'none'} src={near ? src : undefined}
+    onLoadedMetadata={(event) => { if (!poster && event.currentTarget.duration > .05) event.currentTarget.currentTime = .05; }}
+    onMouseEnter={(event) => { void event.currentTarget.play().catch(() => {}); }} onMouseLeave={(event) => event.currentTarget.pause()} />;
 }
 
 function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' }) {
