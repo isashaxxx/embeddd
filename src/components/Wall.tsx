@@ -841,10 +841,10 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     setCollModal(null);
   }
 
-  async function saveProject(name: string, color: string) {
+  async function saveProject(name: string, color: string, accessMode?: Project['access_mode']) {
     const editingProject = projectModal === 'new' ? null : projectModal;
     const res = await fetch(editingProject ? `/api/projects/${editingProject.id}` : '/api/projects', {
-      method: editingProject ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, color }),
+      method: editingProject ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, color, accessMode }),
     });
     if (!res.ok) return say('Не удалось сохранить проект');
     const project: Project = await res.json();
@@ -1505,11 +1505,17 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const project = projectModal === 'new' ? null : projectModal;
     const [name, setName] = useState(project?.name || '');
     const [color, setColor] = useState(project?.color || '#C6F04A');
+    const [access, setAccess] = useState<Project['access_mode']>(project?.access_mode || 'private');
+    const publicUrl = project?.share_token ? `${location.origin}/${encodeURIComponent(account?.nickname || 'embeddd')}/${project.slug}` : null;
     return <div className="overlay on" onClick={(event) => { if (event.target === event.currentTarget) setProjectModal(null); }}><div className="modal">
       <h3>{project ? 'Проект' : 'Новый проект'}</h3>
-      <div className="field"><label>Название</label><input autoFocus value={name} placeholder="Клиент / Бренд / Личное" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && name.trim() && saveProject(name.trim(), color)} /></div>
+      <div className="field"><label>Название</label><input autoFocus value={name} placeholder="Клиент / Бренд / Личное" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && name.trim() && saveProject(name.trim(), color, access)} /></div>
       <div className="field"><label>Цвет</label><input type="color" value={color} style={{ height: 38, padding: 3 }} onChange={(event) => setColor(event.target.value)} /></div>
-      <div className="modal-foot">{project && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteProject(project)}>Удалить</button>}<button className="btn ghost" onClick={() => setProjectModal(null)}>Отмена</button><button className="btn" onClick={() => name.trim() && saveProject(name.trim(), color)}>{project ? 'Сохранить' : 'Создать'}</button></div>
+      {project && <div className="field"><label>Доступ</label><select value={access} onChange={(event) => setAccess(event.target.value as Project['access_mode'])}>
+        <option value="private">Только я</option><option value="link">По ссылке — виден всем</option>
+      </select></div>}
+      {project && publicUrl && access === 'link' && <button className="share-link" onClick={() => { navigator.clipboard.writeText(publicUrl); say('Ссылка скопирована'); }}>Скопировать публичную ссылку</button>}
+      <div className="modal-foot">{project && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteProject(project)}>Удалить</button>}<button className="btn ghost" onClick={() => setProjectModal(null)}>Отмена</button><button className="btn" onClick={() => name.trim() && saveProject(name.trim(), color, access)}>{project ? 'Сохранить' : 'Создать'}</button></div>
     </div></div>;
   }
 

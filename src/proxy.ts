@@ -7,6 +7,12 @@ export async function proxy(req: NextRequest) {
 
   if (pathname.startsWith('/c/')) return NextResponse.next();
 
+  // Публичные ссылки на проект вида /username/slug — доступ решает сама
+  // страница (совпадение ника + access_mode = 'link'), не эта проверка.
+  const segments = pathname.split('/').filter(Boolean);
+  const reserved = new Set(['login', 'api', 'boards', 'projects', 'posts', 'share', 'c']);
+  if (segments.length === 2 && !reserved.has(segments[0])) return NextResponse.next();
+
   if (ok && pathname === '/login') return NextResponse.redirect(new URL('/', req.url));
   if (ok) return NextResponse.next();
 

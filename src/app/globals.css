@@ -528,6 +528,9 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .public-pin b{font-size:13px}
 .public-pin p{margin:3px 0 0;color:var(--muted);font-size:12px;line-height:1.4}
 .public-block{padding:22px;border-radius:18px;background:var(--hover);font-size:18px}
+.public-cover{width:100%;max-height:420px;border-radius:20px;overflow:hidden;margin-bottom:28px;background:var(--hover)}
+.public-cover>img{display:block;width:100%;height:100%;max-height:420px;object-fit:cover}
+.public-empty{color:var(--muted);padding:40px 0;text-align:center}
 .public-h1{font-size:34px;font-weight:800}.public-h2{font-size:28px;font-weight:750}.public-h3{font-size:23px;font-weight:700}
 .public-callout{background:#fff8dc}.public-code{font-family:monospace;color:var(--muted)}
 @media(min-width:640px){.public-masonry{columns:3}}
