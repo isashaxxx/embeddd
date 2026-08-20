@@ -102,7 +102,11 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       muuriRef.current = instance;
 
       instance.on('dragStart', (item) => {
-        item.getElement()?.classList.add('is-grabbed');
+        const element = item.getElement();
+        if (element) {
+          element.style.width = `${element.getBoundingClientRect().width}px`;
+          element.classList.add('is-grabbed');
+        }
         document.body.classList.add('grid-dragging');
       });
       instance.on('dragMove', (_item, event) => {
@@ -119,6 +123,12 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         const collectionTarget = underPointer?.closest<HTMLElement>('[data-collection-drop]')?.dataset.collectionDrop;
         if (id && collectionTarget) moveTo(id, collectionTarget);
         else persistGridOrder(instance.getItems().map((entry) => entry.getElement()?.dataset.cardId).filter(Boolean) as string[]);
+      });
+      instance.on('dragReleaseEnd', (item) => {
+        const element = item.getElement();
+        if (!element) return;
+        element.style.removeProperty('width');
+        instance.refreshItems([item]).layout();
       });
 
       const relayout = () => {
