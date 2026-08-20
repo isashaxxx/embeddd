@@ -450,6 +450,69 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     say(`Объединено в «${target.name}»`);
   }
 
+  // Автоматическая склейка похожих бордов: ИИ иногда создаёт по борду на
+  // карточку (например, если в кадре есть текст каталога, который каждый
+  // раз формулируется чуть иначе и не матчится по точному имени). Здесь
+  // группируем борды по пересечению тегов их карточек и по общим словам в
+  // названии — это не зависит от точной формулировки, в отличие от ИИ.
+  const BOARD_NAME_STOPWORDS = new Set(['новая', 'новый', 'новое', 'каталог', 'коллекция', 'коллекции', 'женской', 'женская', 'мужской', 'мужская', 'одежды', 'одежда', 'лукбук']);
+  function boardNameWords(name: string) {
+    return name.toLocaleLowerCase().replace(/[«»"'.,:;!?()]/g, ' ').split(/\s+/).filter((w) => w.length >= 4 && !BOARD_NAME_STOPWORDS.has(w));
+  }
+  function boardTopTags(boardId: string, n = 3) {
+    const freq = new Map<string, number>();
+    items.filter((item) => item.collection_id === boardId).forEach((item) => (item.tags || []).forEach((tag) => freq.set(tag, (freq.get(tag) || 0) + 1)));
+    return [...freq].sort((a, b) => b[1] - a[1]).slice(0, n).map(([tag]) => tag);
+  }
+
+  async function autoMergeSimilarBoards() {
+    const scope = projectCollections;
+    if (scope.length < 2) return say('Недостаточно бордов для объединения');
+
+    const parent = new Map(scope.map((b) => [b.id, b.id]));
+    const find = (id: string): string => {
+      const p = parent.get(id)!;
+      if (p === id) return id;
+      const root = find(p);
+      parent.set(id, root);
+      return root;
+    };
+    const union = (a: string, b: string) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+
+    for (let i = 0; i < scope.length; i++) {
+      const tagsA = new Set(boardTopTags(scope[i].id));
+      const nameA = new Set(boardNameWords(scope[i].name));
+      for (let j = i + 1; j < scope.length; j++) {
+        const tagsB = new Set(boardTopTags(scope[j].id));
+        const nameB = new Set(boardNameWords(scope[j].name));
+        const sharedTags = [...tagsA].filter((t) => tagsB.has(t)).length;
+        const sharedWords = [...nameA].filter((w) => nameB.has(w)).length;
+        const nameOverlap = sharedWords / Math.max(1, Math.min(nameA.size, nameB.size));
+        if (sharedTags >= 2 || (sharedTags >= 1 && nameOverlap >= 0.5) || nameOverlap >= 0.7) union(scope[i].id, scope[j].id);
+      }
+    }
+
+    const clusters = new Map<string, Collection[]>();
+    scope.forEach((board) => { const root = find(board.id); clusters.set(root, [...(clusters.get(root) || []), board]); });
+    const groups = [...clusters.values()].filter((group) => group.length > 1);
+    if (!groups.length) return say('Похожих бордов не найдено');
+
+    let mergedCount = 0;
+    for (const group of groups) {
+      const target = group.reduce((best, b) => (countOf(b.id) > countOf(best.id) ? b : best), group[0]);
+      const sourceIds = group.filter((b) => b.id !== target.id).map((b) => b.id);
+      const affected = items.filter((item) => item.collection_id && sourceIds.includes(item.collection_id));
+      setItems((p) => p.map((item) => item.collection_id && sourceIds.includes(item.collection_id) ? { ...item, collection_id: target.id } : item));
+      setCollections((p) => p.filter((c) => !sourceIds.includes(c.id)));
+      if (sourceIds.includes(active)) setActive(target.id);
+      await Promise.all(affected.map((item) => fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collectionId: target.id }) })));
+      await Promise.all(sourceIds.map((id) => fetch(`/api/collections/${id}`, { method: 'DELETE' })));
+      mergedCount += sourceIds.length;
+    }
+    setSelected(new Set());
+    say(`Объединено бордов: ${mergedCount}`);
+  }
+
   async function placeAutomatically(item: Item, result: AiSuggestion) {
     // A board explicitly chosen by the user always wins over AI auto-placement.
     // AI may enrich the card, but silently moving a freshly uploaded item makes
@@ -1001,7 +1064,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               <div><b>{projects.find((project) => project.id === activeProject)?.name}</b><small>{projectCollections.length} {plural(projectCollections.length, 'борд', 'борда', 'бордов')}</small></div>
               <button aria-label="Настройки проекта" onClick={() => { const project = projects.find((value) => value.id === activeProject); if (project) setProjectModal(project); }}><Icon name="settings" /></button>
             </div>
-            <div className="nav-label figma-pages"><span>Борды</span><button aria-label="Новый борд" onClick={() => setCollModal('new')}><Icon name="plus" /></button></div>
+            <div className="nav-label figma-pages"><span>Борды</span><div className="nav-label-actions"><button aria-label="Объединить похожие борды" title="Объединить похожие борды" onClick={() => void autoMergeSimilarBoards()}><Icon name="merge" /></button><button aria-label="Новый борд" onClick={() => setCollModal('new')}><Icon name="plus" /></button></div></div>
             {projectCollections.map((c) => <NavRow key={c.id} id={c.id} name={c.name} color={c.color} count={countOf(c.id)} coll={c} />)}
             {!projectCollections.length && <div className="nav-empty">Пока нет бордов</div>}
           </> : <>
@@ -1015,7 +1078,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
                 <SortableContext items={projectBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}><div className="project-tree-boards">{projectBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</div></SortableContext>
               </BoardDropZone>; })}
             </>}
-            <div className="nav-label figma-pages"><span>Мои борды</span><button aria-label="Новый борд" onClick={() => setCollModal('new')}><Icon name="plus" /></button></div>
+            <div className="nav-label figma-pages"><span>Мои борды</span><div className="nav-label-actions"><button aria-label="Объединить похожие борды" title="Объединить похожие борды" onClick={() => void autoMergeSimilarBoards()}><Icon name="merge" /></button><button aria-label="Новый борд" onClick={() => setCollModal('new')}><Icon name="plus" /></button></div></div>
             <BoardDropZone id="unassigned"><SortableContext items={unassignedBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}>{unassignedBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</SortableContext></BoardDropZone>
             <DragOverlay dropAnimation={{ duration: 160, easing: 'ease-out' }}>{draggingBoard ? <BoardRowVisual board={collections.find((board) => board.id === draggingBoard)!} count={countOf(draggingBoard)} overlay /> : null}</DragOverlay>
             </DndContext>
@@ -1064,6 +1127,17 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             </button>
             <div className="account-hover-card">
               <div className="account-hover-card-inner">
+                <div className="account-hover-row">
+                  <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('all'); setMenuOpen(true); }}><Icon name="folder" /> Мои проекты</button>
+                  <button className="account-hover-add" aria-label="Новый проект" title="Новый проект" onClick={(event) => { event.stopPropagation(); setProjectModal('new'); }}><Icon name="plus" /></button>
+                </div>
+                <div className="account-hover-row">
+                  <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('all'); setMenuOpen(true); }}><Icon name="board" /> Мои борды</button>
+                  <button className="account-hover-add" aria-label="Новый борд" title="Новый борд" onClick={(event) => { event.stopPropagation(); setCollModal('new'); }}><Icon name="plus" /></button>
+                </div>
+                <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('fav'); }}><Icon name="favorite" /> Избранное</button>
+                <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('archive'); }}><Icon name="archive" /> Архив</button>
+                <i className="account-hover-sep" />
                 <button className="account-hover-action" onClick={() => setAccountOpen(true)}><Icon name="settings" /> Настройки аккаунта</button>
                 <button className="account-hover-action" onClick={logout}><Icon name="logout" /> Выйти</button>
               </div>
@@ -1431,7 +1505,7 @@ function AutoVideo({ src, className, poster }: { src: string; className: string;
     onMouseEnter={(event) => { void event.currentTarget.play().catch(() => {}); }} onMouseLeave={(event) => event.currentTarget.pause()} />{duration > 0 && <span className="video-duration">{formatDuration(duration)}</span>}</>;
 }
 
-function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' | 'logout' | 'folder' }) {
+function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' | 'logout' | 'folder' | 'merge' | 'board' }) {
   const paths: Record<typeof name, React.ReactNode> = {
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     close: <><path d="M6 6l12 12M18 6 6 18"/></>,
@@ -1450,6 +1524,8 @@ function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' |
     unfavorite: <path fill="currentColor" d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>,
     logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></>,
     folder: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>,
+    merge: <><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M6 8.4V13a4 4 0 0 0 4 4h5.6"/></>,
+    board: <><rect x="3" y="3" width="8" height="18" rx="2.2"/><rect x="13" y="3" width="8" height="10" rx="2.2"/></>,
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }

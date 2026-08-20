@@ -104,6 +104,12 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .account-hover-action{width:100%;display:flex;align-items:center;gap:9px;padding:8px 7px;border-radius:9px;font-size:12px;color:var(--muted);text-align:left}
 .account-hover-action:hover{background:var(--hover);color:var(--ink)}
 .account-hover-action .ui-icon{width:15px;height:15px}
+.account-hover-row{display:flex;align-items:center;gap:2px}
+.account-hover-row .account-hover-action{flex:1;min-width:0}
+.account-hover-add{width:27px;height:27px;flex:0 0 27px;display:grid;place-items:center;border-radius:8px;color:var(--muted)}
+.account-hover-add:hover{background:var(--hover);color:var(--ink)}
+.account-hover-add .ui-icon{width:14px;height:14px}
+.account-hover-sep{display:block;height:1px;margin:5px 6px;background:var(--line-soft)}
 
 /* ---------- main ---------- */
 .main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
@@ -161,6 +167,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .project-workspace>button{width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;border-radius:8px}.project-workspace>button:hover{background:var(--hover)}.project-workspace .ui-icon{width:18px;height:18px}
 .project-workspace>div{display:flex;flex:1;min-width:0;flex-direction:column}.project-workspace b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.project-workspace small{margin-top:2px;color:var(--muted);font-size:10px}
 .figma-pages{display:flex;align-items:center;justify-content:space-between}.figma-pages button{width:27px;height:27px;display:grid;place-items:center;border-radius:7px}.figma-pages button:hover{background:var(--hover)}.figma-pages .ui-icon{width:17px;height:17px}
+.nav-label-actions{display:flex;align-items:center;gap:2px}
 @keyframes ai-pulse{50%{opacity:.35;transform:scale(.7)}}
 .menu-shield{position:fixed;inset:0;z-index:6;cursor:default}
 .element-menu{
