@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db, uid } from '@/lib/db';
+import { db, slugify, uid } from '@/lib/db';
 import { parseLink, unfurl } from '@/lib/parse';
 
 export const dynamic = 'force-dynamic';
@@ -24,9 +24,9 @@ export async function POST(req: Request) {
   if (body.upload) {
     const u = body.upload;
     await sql`
-      insert into items (id, collection_id, kind, provider, position, src, thumb, width, height,
+      insert into items (id, slug, collection_id, kind, provider, position, src, thumb, width, height,
                          r2_key, r2_thumb_key, title)
-      values (${id}, ${collectionId}, ${u.kind}, 'local', ${position}, ${u.src}, ${u.thumb ?? u.src},
+      values (${id}, ${slugify(u.title || 'image', id)}, ${collectionId}, ${u.kind}, 'local', ${position}, ${u.src}, ${u.thumb ?? u.src},
               ${u.width ?? null}, ${u.height ?? null}, ${u.key}, ${u.thumbKey ?? null}, ${u.title ?? ''})`;
     return NextResponse.json(await one(id));
   }
@@ -38,8 +38,8 @@ export async function POST(req: Request) {
     const title = String(body.block.title || '').slice(0, 500);
     const note = String(body.block.note || '').slice(0, 100000);
     await sql`
-      insert into items (id, collection_id, kind, provider, position, embed_h, title, note, display_size, text_style)
-      values (${id}, ${collectionId}, ${kind}, 'block', ${position}, ${kind === 'html' ? 280 : null}, ${title}, ${note},
+      insert into items (id, slug, collection_id, kind, provider, position, embed_h, title, note, display_size, text_style)
+      values (${id}, ${slugify(title || kind, id)}, ${collectionId}, ${kind}, 'block', ${position}, ${kind === 'html' ? 280 : null}, ${title}, ${note},
               ${['S', 'M', 'L'].includes(String(body.block.displaySize)) ? String(body.block.displaySize) : 'S'}, ${String(body.block.textStyle || 'p')})`;
     return NextResponse.json(await one(id));
   }
@@ -57,9 +57,9 @@ export async function POST(req: Request) {
   }
 
   await sql`
-    insert into items (id, collection_id, kind, provider, position, url, host,
+    insert into items (id, slug, collection_id, kind, provider, position, url, host,
                        embed_url, embed_h, ratio, src, thumb, title)
-    values (${id}, ${collectionId}, ${p.kind}, ${p.provider}, ${position}, ${p.url}, ${p.host},
+    values (${id}, ${slugify(title || p.host || 'link', id)}, ${collectionId}, ${p.kind}, ${p.provider}, ${position}, ${p.url}, ${p.host},
             ${p.embedUrl ?? null}, ${p.embedH ?? null}, ${p.ratio ?? null},
             ${p.src ?? null}, ${thumb}, ${title})`;
 

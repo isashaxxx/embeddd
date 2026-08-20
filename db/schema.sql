@@ -1,6 +1,7 @@
 -- embeddd · схема
 create table if not exists projects (
   id text primary key,
+  slug text unique,
   name text not null,
   color text not null default '#C6F04A',
   position double precision not null default 0,
@@ -9,6 +10,7 @@ create table if not exists projects (
 
 create table if not exists collections (
   id          text primary key,
+  slug        text unique,
   name        text not null,
   color       text not null default '#C6F04A',
   position    double precision not null default 0,
@@ -20,6 +22,7 @@ create table if not exists collections (
 
 create table if not exists items (
   id            text primary key,
+  slug          text unique,
   collection_id text references collections(id) on delete set null,
   kind          text not null,
   provider      text,
@@ -57,6 +60,15 @@ create table if not exists user_stats (
 
 -- `create table if not exists` не расширяет уже существующую таблицу.
 alter table collections add column if not exists project_id text references projects(id) on delete set null;
+alter table projects add column if not exists slug text;
+alter table collections add column if not exists slug text;
+alter table items add column if not exists slug text;
+update projects set slug = id where slug is null;
+update collections set slug = id where slug is null;
+update items set slug = id where slug is null;
+create unique index if not exists projects_slug_idx on projects (slug);
+create unique index if not exists collections_slug_idx on collections (slug);
+create unique index if not exists items_slug_idx on items (slug);
 
 create index if not exists items_position_idx on items (position);
 create index if not exists items_collection_idx on items (collection_id);

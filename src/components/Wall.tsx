@@ -1,11 +1,12 @@
 'use client';
 
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type Muuri from 'muuri';
 import type { Collection, Item, Progress, Project } from '@/lib/types';
 import { shrink, videoSize } from '@/lib/resize';
 
-type Props = { initialProjects: Project[]; initialCollections: Collection[]; initialItems: Item[] };
+type Props = { initialProjects: Project[]; initialCollections: Collection[]; initialItems: Item[]; initialActive?: string; initialProject?: string; initialPost?: string };
 type Active = 'all' | 'fav' | string;
 type NewElement = 'link' | 'text' | 'callout' | 'html';
 type ElementSize = 'S' | 'M' | 'L';
@@ -23,16 +24,19 @@ const pinCrop = (item: Item) => {
   return (['compact', 'portrait', 'tall'] as const)[Math.abs(seed) % 3];
 };
 
-export default function Wall({ initialProjects, initialCollections, initialItems }: Props) {
+export default function Wall({ initialProjects, initialCollections, initialItems, initialActive = 'all', initialProject = 'all', initialPost }: Props) {
+  const router = useRouter();
   const [projects, setProjects] = useState(initialProjects);
   const [collections, setCollections] = useState(initialCollections);
   const [items, setItems] = useState(initialItems);
-  const [active, setActive] = useState<Active>('all');
+  const [active, setActive] = useState<Active>(initialActive);
   const [editing, setEditing] = useState<Item | null>(null);
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
   const [projectModal, setProjectModal] = useState<Project | 'new' | null>(null);
-  const [activeProject, setActiveProject] = useState<string>('all');
-  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [activeProject, setActiveProject] = useState<string>(initialProject);
+  const [lightbox, setLightbox] = useState<string | null>(() => initialPost ? initialItems.find((item) => item.slug === initialPost)?.id || null : null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -90,7 +94,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const visible = items.filter((i) => {
     const inSection = active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active;
     const inProject = activeProject === 'all' || (!!i.collection_id && projectCollectionIds.has(i.collection_id));
-    return inSection && inProject && (!selectedTag || i.tags?.includes(selectedTag));
+    const haystack = `${i.title} ${i.note} ${(i.tags || []).join(' ')}`.toLocaleLowerCase();
+    return inSection && inProject && (!selectedTag || i.tags?.includes(selectedTag)) && (!search.trim() || haystack.includes(search.trim().toLocaleLowerCase()));
   });
 
   const feedEntries: ({ type: 'item'; value: Item } | { type: 'collection'; value: Collection })[] = active === 'all'
@@ -232,7 +237,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   async function addLink(url: string) {
     const tempId = 'temp-' + Math.random().toString(36).slice(2);
     const optimistic: Item = {
-      id: tempId, collection_id: targetCollection(), kind: 'link', provider: null,
+      id: tempId, slug: tempId, collection_id: targetCollection(), kind: 'link', provider: null,
       position: -Infinity, fav: false, url, host: safeHost(url), embed_url: null, embed_h: null,
       ratio: null, src: null, thumb: null, width: null, height: null, r2_key: null,
       r2_thumb_key: null, title: safeHost(url), note: '', display_size: 'M', text_style: 'p',
@@ -600,7 +605,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   /* ---------------- разметка ---------------- */
 
-  const title = active === 'all' ? 'Всё' : active === 'fav' ? 'Избранное' : collections.find((c) => c.id === active)?.name ?? 'Всё';
+  const title = active === 'all' ? (activeProject === 'all' ? 'Всё' : projects.find((project) => project.id === activeProject)?.name || 'Всё') : active === 'fav' ? 'Избранное' : collections.find((c) => c.id === active)?.name ?? 'Всё';
 
   return (
     <div className={'app' + (moveMode ? ' move-mode' : '')}>
@@ -610,7 +615,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           <NavRow id="all" name="Всё" count={countOf('all')} />
           <NavRow id="fav" name="Избранное" count={countOf('fav')} />
           <div className="nav-label">Проекты</div>
-          {projects.map((project) => <button key={project.id} className={'project-row' + (activeProject === project.id ? ' on' : '')} onClick={() => { setActiveProject(project.id); setActive('all'); }}>
+          {projects.map((project) => <button key={project.id} className={'project-row' + (activeProject === project.id ? ' on' : '')} onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/project/${project.slug}`); }}>
             <span style={{ background: project.color }} /> <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
           </button>)}
           <button className="add-coll" onClick={() => setProjectModal('new')}><span>＋</span> Новый проект</button>
@@ -635,9 +640,10 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <p>{selectedTag ? `#${selectedTag} · ` : ''}{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
           </div>
           {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
-          {active === 'all' && <button className="icon-control" aria-label="Изменить порядок ленты" title={feedOrder === 'newest' ? 'Сначала новые' : 'Сначала старые'} onClick={() => setFeedOrder((value) => value === 'newest' ? 'oldest' : 'newest')}>↕</button>}
+          <div className={'top-search' + (searchOpen ? ' open' : '')}>{searchOpen && <input autoFocus value={search} placeholder="Поиск" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />}<button className="icon-control" aria-label="Поиск" title="Поиск" onClick={() => { if (searchOpen && search) setSearch(''); else setSearchOpen((value) => !value); }}><Icon name={searchOpen && search ? 'close' : 'search'} /></button></div>
+          {active === 'all' && <button className="icon-control" aria-label="Изменить порядок ленты" title={feedOrder === 'newest' ? 'Сначала новые' : 'Сначала старые'} onClick={() => setFeedOrder((value) => value === 'newest' ? 'oldest' : 'newest')}><Icon name="sort" /></button>}
           <div className="reward-control">
-            <button className="reward-button icon-control" title={`${progress?.xp || 0} XP`} aria-label="Награды" aria-expanded={rewardsOpen} onClick={() => setRewardsOpen((value) => !value)}><span>♕</span></button>
+            <button className="reward-button icon-control" title={`${progress?.xp || 0} XP`} aria-label="Награды" aria-expanded={rewardsOpen} onClick={() => setRewardsOpen((value) => !value)}><Icon name="award" /></button>
             {rewardsOpen && <>
               <button className="menu-shield" aria-label="Закрыть награды" onClick={() => setRewardsOpen(false)} />
               <div className="rewards-menu">
@@ -650,7 +656,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             </>}
           </div>
           <button className={'icon-control move-toggle' + (moveMode ? ' on' : '')} title={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-label={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-pressed={moveMode}
-            onClick={() => setMoveMode((value) => !value)}>{moveMode ? '✓' : '✥'}</button>
+            onClick={() => setMoveMode((value) => !value)}><Icon name={moveMode ? 'check' : 'move'} /></button>
           <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'}
             title={aiMode === 'auto' ? 'ИИ включён' : 'ИИ выключен'} aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span></button>
           <div className="add-element">
@@ -682,7 +688,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
               return <div key={`board-${collection.id}`} className="grid-item collection-board-item" style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
                 <div className="grid-item-content collection-board">
-                  <button className="board-open" onClick={() => setActive(collection.id)} aria-label={`Открыть ${collection.name}`} />
+                  <button className="board-open" onClick={() => { setActive(collection.id); router.push(`/board/${collection.slug}`); }} aria-label={`Открыть ${collection.name}`} />
                   <span className="board-covers">
                     {covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)}
                     {!covers.length && <span className="board-empty" style={{ background: collection.color }} />}
@@ -765,6 +771,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('.coll-edit')) return;
           setActive(id); setMenuOpen(false);
+          if (coll) router.push(`/board/${coll.slug}`); else router.push('/');
         }}
       >
         <span className="coll-dot" style={color ? { background: color } : undefined} />
@@ -792,7 +799,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; });
             return;
           }
-          if (isMedia) setLightbox(item.id);
+          if (isMedia) { setLightbox(item.id); router.push(`/post/${item.slug}`, { scroll: false }); }
           else if (item.url) window.open(item.url, '_blank', 'noopener');
         }}
       >
@@ -1011,18 +1018,22 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const idx = list.findIndex((i) => i.id === lightbox);
     const it = list[idx];
     if (!it) return null;
-    const go = (d: number) => setLightbox(list[(idx + d + list.length) % list.length].id);
-    const [sourceUrl, setSourceUrl] = useState(it.url || '');
+    const go = (d: number) => {
+      const next = list[(idx + d + list.length) % list.length];
+      setLightbox(next.id);
+      router.replace(`/post/${next.slug}`, { scroll: false });
+    };
+    const [description, setDescription] = useState(it.note || '');
 
     return (
       <div className="lb on">
-        <button className="lb-back" aria-label="Назад" onClick={() => setLightbox(null)}>←</button>
+        <button className="lb-back" aria-label="Назад" onClick={() => { setLightbox(null); router.back(); }}><Icon name="back" /></button>
         <div className="pin-detail">
           <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} controls autoPlay /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}</div>
           <div className="pin-detail-info">
             <div className="pin-detail-actions"><button aria-label="Предыдущая" onClick={() => go(-1)}>‹</button><span>{idx + 1}/{list.length}</span><button aria-label="Следующая" onClick={() => go(1)}>›</button></div>
-            <h2>{it.title || 'Без названия'}</h2>{it.note && <p>{it.note}</p>}
-            <div className="field"><label>Ссылка-источник</label><div className="source-row"><input value={sourceUrl} placeholder="https://..." onChange={(event) => setSourceUrl(event.target.value)} onBlur={() => patch(it.id, { url: sourceUrl.trim() || null })} /><button className="btn ghost" disabled={!sourceUrl.trim()} onClick={() => window.open(sourceUrl, '_blank', 'noopener,noreferrer')}>↗</button></div></div>
+            <h2>{it.title || 'Без названия'}</h2>
+            <div className="field description-field"><label>Описание</label><textarea value={description} placeholder="Добавить описание…" onChange={(event) => setDescription(event.target.value)} onBlur={() => patch(it.id, { note: description })} /></div>
             {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
             event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
           }}>#{tag}</button>)}</div>}
@@ -1036,6 +1047,19 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 }
 
 /* ---------------- мелочи ---------------- */
+
+function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' }) {
+  const paths: Record<typeof name, React.ReactNode> = {
+    search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
+    close: <><path d="M6 6l12 12M18 6 6 18"/></>,
+    award: <><circle cx="12" cy="9" r="5"/><path d="m8.5 13-1 8 4.5-2.5L16.5 21l-1-8"/><path d="m10 9 1.3 1.3L14 7.7"/></>,
+    sort: <><path d="M8 4v16M5 7l3-3 3 3M16 20V4M13 17l3 3 3-3"/></>,
+    move: <><path d="M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4"/></>,
+    check: <path d="m5 12 4 4L19 6"/>,
+    back: <><path d="m15 18-6-6 6-6"/><path d="M9 12h11"/></>,
+  };
+  return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
 
 function plural(n: number, a: string, b: string, c: string) {
   const m = n % 100;

@@ -1,5 +1,6 @@
 export type Collection = {
   id: string;
+  slug: string;
   name: string;
   color: string;
   position: number;
@@ -9,10 +10,11 @@ export type Collection = {
   project_id: string | null;
 };
 
-export type Project = { id: string; name: string; color: string; position: number; created_at: string };
+export type Project = { id: string; slug: string; name: string; color: string; position: number; created_at: string };
 
 export type Item = {
   id: string;
+  slug: string;
   collection_id: string | null;
   kind: 'image' | 'video' | 'embed' | 'link' | 'text' | 'heading' | 'callout' | 'html' | 'divider';
   provider: string | null;

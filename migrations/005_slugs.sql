@@ -1,0 +1,9 @@
+alter table projects add column if not exists slug text;
+alter table collections add column if not exists slug text;
+alter table items add column if not exists slug text;
+update projects set slug = id where slug is null;
+update collections set slug = id where slug is null;
+update items set slug = id where slug is null;
+create unique index if not exists projects_slug_idx on projects (slug);
+create unique index if not exists collections_slug_idx on collections (slug);
+create unique index if not exists items_slug_idx on items (slug);
