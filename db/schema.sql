@@ -59,6 +59,17 @@ create table if not exists user_stats (
   ai_credits integer not null default 100
 );
 
+create table if not exists account_profile (
+  id text primary key,
+  nickname text not null default 'embeddd',
+  email text not null default '',
+  avatar_url text,
+  role text not null default 'owner',
+  permissions text[] not null default array['manage_content','manage_projects','manage_ai','manage_account']::text[],
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- `create table if not exists` не расширяет уже существующую таблицу.
 alter table collections add column if not exists project_id text references projects(id) on delete set null;
 alter table projects add column if not exists slug text;

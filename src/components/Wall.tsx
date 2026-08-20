@@ -3,7 +3,7 @@
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type Muuri from 'muuri';
-import type { Collection, Item, Progress, Project } from '@/lib/types';
+import type { Account, Collection, Item, Progress, Project } from '@/lib/types';
 import { shrink, videoSize } from '@/lib/resize';
 
 type Props = { initialProjects: Project[]; initialCollections: Collection[]; initialItems: Item[]; initialActive?: string; initialProject?: string; initialPost?: string };
@@ -46,6 +46,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [feedOrder, setFeedOrder] = useState<'newest' | 'oldest'>('newest');
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [rewardsOpen, setRewardsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
@@ -55,6 +57,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [gridMetrics, setGridMetrics] = useState({ width: 0, columns: 2 });
   const fileRef = useRef<HTMLInputElement>(null);
+  const avatarRef = useRef<HTMLInputElement>(null);
   const topSearchRef = useRef<HTMLDivElement>(null);
   const dragResetTimer = useRef<number | null>(null);
   const selectionBoxRef = useRef<HTMLDivElement>(null);
@@ -78,6 +81,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [items.length, collections.length, taggedCount, say]);
+
+  useEffect(() => { void fetch('/api/account').then((response) => response.json()).then(setAccount).catch(() => {}); }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem('embeddd:ai-mode');
@@ -557,6 +562,25 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     } else say(projectId ? 'Борд перемещён в проект' : 'Борд вынесен из проекта');
   }
 
+  async function saveAccount(data: Partial<Record<string, unknown>>) {
+    const response = await fetch('/api/account', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
+    if (!response.ok) return say('Не удалось сохранить аккаунт');
+    setAccount(await response.json());
+    say('Настройки сохранены');
+  }
+
+  async function uploadAvatar(file?: File) {
+    if (!file || !file.type.startsWith('image/')) return;
+    try {
+      const resized = await shrink(file, 512, .86);
+      const signedResponse = await fetch('/api/upload-url', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ext: 'webp', contentType: 'image/webp', withThumb: false }) });
+      const signed = await signedResponse.json();
+      const uploadResponse = await fetch(signed.putUrl, { method: 'PUT', headers: { 'content-type': 'image/webp' }, body: resized.blob });
+      if (!uploadResponse.ok) throw new Error();
+      await saveAccount({ avatarUrl: signed.src });
+    } catch { say('Не удалось загрузить аватар'); }
+  }
+
   async function deleteCollection(c: Collection) {
     if (!confirm(`Удалить «${c.name}»? Карточки останутся во «Всём».`)) return;
     setCollections((p) => p.filter((x) => x.id !== c.id));
@@ -659,9 +683,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <button className="add-coll" onClick={() => setCollModal('new')}><span>＋</span> Новый борд</button>
           </>}
         </div>
-        <div className="side-foot">
-          <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); location.href = '/login'; }}>Выйти</button>
-        </div>
+        <div className="side-foot"><button className="account-entry" onClick={() => setAccountOpen(true)}>{account?.avatar_url ? <img src={account.avatar_url} alt="" /> : <span>{(account?.nickname || 'E').slice(0, 1).toUpperCase()}</span>}<div><b>{account?.nickname || 'Аккаунт'}</b><small>{account?.email || 'Настройки профиля'}</small></div><Icon name="settings" /></button></div>
       </aside>
 
       <main className="main">
@@ -776,6 +798,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       {editing && <EditModal item={editing} />}
       {collModal && <CollModal />}
       {projectModal && <ProjectModal />}
+      {accountOpen && <AccountModal />}
       {newElement && <NewElementModal kind={newElement} />}
       {lightbox && <Lightbox />}
 
@@ -1045,6 +1068,26 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       <div className="field"><label>Название</label><input autoFocus value={name} placeholder="Клиент / Бренд / Личное" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && name.trim() && saveProject(name.trim(), color)} /></div>
       <div className="field"><label>Цвет</label><input type="color" value={color} style={{ height: 38, padding: 3 }} onChange={(event) => setColor(event.target.value)} /></div>
       <div className="modal-foot">{project && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteProject(project)}>Удалить</button>}<button className="btn ghost" onClick={() => setProjectModal(null)}>Отмена</button><button className="btn" onClick={() => name.trim() && saveProject(name.trim(), color)}>{project ? 'Сохранить' : 'Создать'}</button></div>
+    </div></div>;
+  }
+
+  function AccountModal() {
+    const [nickname, setNickname] = useState(account?.nickname || '');
+    const [email, setEmail] = useState(account?.email || '');
+    const [role, setRole] = useState<Account['role']>(account?.role || 'owner');
+    const [permissions, setPermissions] = useState<string[]>(account?.permissions || []);
+    const permissionOptions = [
+      ['manage_content', 'Контент', 'Добавлять, изменять и удалять карточки'], ['manage_projects', 'Проекты и борды', 'Создавать и переносить борды'],
+      ['manage_ai', 'AI-инструменты', 'Анализировать изображения и тратить кредиты'], ['manage_account', 'Аккаунт', 'Менять профиль и права'],
+    ];
+    return <div className="overlay on" onClick={(event) => { if (event.target === event.currentTarget) setAccountOpen(false); }}><div className="modal account-modal">
+      <div className="account-head"><div className="account-avatar">{account?.avatar_url ? <img src={account.avatar_url} alt="" /> : <span>{(nickname || 'E').slice(0, 1).toUpperCase()}</span>}<button onClick={() => avatarRef.current?.click()}>Изменить</button></div><div><h3>Настройки аккаунта</h3><p>Профиль и права доступа</p></div></div>
+      <input ref={avatarRef} hidden type="file" accept="image/*" onChange={(event) => { void uploadAvatar(event.target.files?.[0]); event.target.value = ''; }} />
+      <div className="account-grid"><div className="field"><label>Никнейм</label><input value={nickname} onChange={(event) => setNickname(event.target.value)} /></div><div className="field"><label>Email</label><input type="email" value={email} placeholder="name@example.com" onChange={(event) => setEmail(event.target.value)} /></div></div>
+      <div className="field"><label>Роль</label><select value={role} onChange={(event) => setRole(event.target.value as Account['role'])}><option value="owner">Владелец</option><option value="editor">Редактор</option><option value="viewer">Наблюдатель</option></select></div>
+      <div className="permissions"><label>Права</label>{permissionOptions.map(([value, title, note]) => <button key={value} className={permissions.includes(value) ? 'on' : ''} onClick={() => setPermissions((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])}><i>{permissions.includes(value) ? '✓' : ''}</i><span><b>{title}</b><small>{note}</small></span></button>)}</div>
+      <div className="account-meta"><span>AI-кредиты</span><b>{progress?.aiCredits ?? '—'}</b></div>
+      <div className="modal-foot"><button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); location.href = '/login'; }}>Выйти</button><button className="btn ghost" onClick={() => setAccountOpen(false)}>Отмена</button><button className="btn" onClick={async () => { await saveAccount({ nickname, email, role, permissions }); setAccountOpen(false); }}>Сохранить</button></div>
     </div></div>;
   }
 

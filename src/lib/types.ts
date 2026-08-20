@@ -59,3 +59,14 @@ export type Progress = {
   achievements: Achievement[];
   newlyUnlocked: string[];
 };
+
+export type Account = {
+  id: string;
+  nickname: string;
+  email: string;
+  avatar_url: string | null;
+  role: 'owner' | 'editor' | 'viewer';
+  permissions: string[];
+  created_at: string;
+  updated_at: string;
+};
