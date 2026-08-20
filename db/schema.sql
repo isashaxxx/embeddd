@@ -1,4 +1,12 @@
 -- embeddd · схема
+create table if not exists projects (
+  id text primary key,
+  name text not null,
+  color text not null default '#C6F04A',
+  position double precision not null default 0,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists collections (
   id          text primary key,
   name        text not null,
@@ -6,6 +14,7 @@ create table if not exists collections (
   position    double precision not null default 0,
   access_mode text not null default 'private',
   share_token text,
+  project_id text references projects(id) on delete set null,
   created_at  timestamptz not null default now()
 );
 
@@ -46,5 +55,9 @@ create table if not exists user_stats (
   last_visit date
 );
 
+-- `create table if not exists` не расширяет уже существующую таблицу.
+alter table collections add column if not exists project_id text references projects(id) on delete set null;
+
 create index if not exists items_position_idx on items (position);
 create index if not exists items_collection_idx on items (collection_id);
+create index if not exists collections_project_idx on collections (project_id);

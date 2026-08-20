@@ -2,10 +2,10 @@
 
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import type Muuri from 'muuri';
-import type { Collection, Item, Progress } from '@/lib/types';
+import type { Collection, Item, Progress, Project } from '@/lib/types';
 import { shrink, videoSize } from '@/lib/resize';
 
-type Props = { initialCollections: Collection[]; initialItems: Item[] };
+type Props = { initialProjects: Project[]; initialCollections: Collection[]; initialItems: Item[] };
 type Active = 'all' | 'fav' | string;
 type NewElement = 'link' | 'text' | 'callout' | 'html';
 type ElementSize = 'S' | 'M' | 'L';
@@ -23,12 +23,15 @@ const pinCrop = (item: Item) => {
   return (['compact', 'portrait', 'tall'] as const)[Math.abs(seed) % 3];
 };
 
-export default function Wall({ initialCollections, initialItems }: Props) {
+export default function Wall({ initialProjects, initialCollections, initialItems }: Props) {
+  const [projects, setProjects] = useState(initialProjects);
   const [collections, setCollections] = useState(initialCollections);
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<Active>('all');
   const [editing, setEditing] = useState<Item | null>(null);
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
+  const [projectModal, setProjectModal] = useState<Project | 'new' | null>(null);
+  const [activeProject, setActiveProject] = useState<string>('all');
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
@@ -82,15 +85,18 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   /* ---------------- данные ---------------- */
 
+  const projectCollections = activeProject === 'all' ? collections : collections.filter((c) => c.project_id === activeProject);
+  const projectCollectionIds = new Set(projectCollections.map((c) => c.id));
   const visible = items.filter((i) => {
     const inSection = active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active;
-    return inSection && (!selectedTag || i.tags?.includes(selectedTag));
+    const inProject = activeProject === 'all' || (!!i.collection_id && projectCollectionIds.has(i.collection_id));
+    return inSection && inProject && (!selectedTag || i.tags?.includes(selectedTag));
   });
 
   const feedEntries: ({ type: 'item'; value: Item } | { type: 'collection'; value: Collection })[] = active === 'all'
     ? [
         ...visible.map((value) => ({ type: 'item' as const, value })),
-        ...(!selectedTag ? collections.map((value) => ({ type: 'collection' as const, value })) : []),
+        ...(!selectedTag ? projectCollections.map((value) => ({ type: 'collection' as const, value })) : []),
       ].sort((a, b) => {
         const aTime = a.value.created_at ? new Date(a.value.created_at).getTime() : a.value.id.startsWith('temp-') ? Date.now() : 0;
         const bTime = b.value.created_at ? new Date(b.value.created_at).getTime() : b.value.id.startsWith('temp-') ? Date.now() : 0;
@@ -480,12 +486,12 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   /* ---------------- коллекции ---------------- */
 
-  async function saveCollection(name: string, color: string, accessMode: Collection['access_mode']) {
+  async function saveCollection(name: string, color: string, accessMode: Collection['access_mode'], projectId: string | null) {
     if (collModal === 'new') {
       const res = await fetch('/api/collections', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, color, accessMode }),
+        body: JSON.stringify({ name, color, accessMode, projectId }),
       });
       const c: Collection = await res.json();
       setCollections((p) => [...p, c]);
@@ -495,12 +501,33 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       const res = await fetch(`/api/collections/${id}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, color, accessMode }),
+        body: JSON.stringify({ name, color, accessMode, projectId }),
       });
       const updated: Collection = await res.json();
       setCollections((p) => p.map((c) => (c.id === id ? updated : c)));
     }
     setCollModal(null);
+  }
+
+  async function saveProject(name: string, color: string) {
+    const editingProject = projectModal === 'new' ? null : projectModal;
+    const res = await fetch(editingProject ? `/api/projects/${editingProject.id}` : '/api/projects', {
+      method: editingProject ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, color }),
+    });
+    if (!res.ok) return say('Не удалось сохранить проект');
+    const project: Project = await res.json();
+    setProjects((current) => editingProject ? current.map((value) => value.id === project.id ? project : value) : [...current, project]);
+    if (!editingProject) setActiveProject(project.id);
+    setProjectModal(null);
+  }
+
+  async function deleteProject(project: Project) {
+    if (!confirm(`Удалить проект «${project.name}»? Борды останутся без проекта.`)) return;
+    setProjects((current) => current.filter((value) => value.id !== project.id));
+    setCollections((current) => current.map((value) => value.project_id === project.id ? { ...value, project_id: null } : value));
+    if (activeProject === project.id) setActiveProject('all');
+    setProjectModal(null);
+    await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
   }
 
   async function deleteCollection(c: Collection) {
@@ -524,7 +551,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       if (/^https?:\/\/|^www\./i.test(txt)) { e.preventDefault(); addLink(txt); }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setLightbox(null); setNewElement(null); setElementMenu(false); }
+      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setProjectModal(null); setLightbox(null); setNewElement(null); setElementMenu(false); }
     };
     document.addEventListener('paste', onPaste);
     document.addEventListener('keydown', onKey);
@@ -582,12 +609,17 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         <div className="nav">
           <NavRow id="all" name="Всё" count={countOf('all')} />
           <NavRow id="fav" name="Избранное" count={countOf('fav')} />
-          <div className="nav-label">Коллекции</div>
-          {collections.map((c) => (
+          <div className="nav-label">Проекты</div>
+          {projects.map((project) => <button key={project.id} className={'project-row' + (activeProject === project.id ? ' on' : '')} onClick={() => { setActiveProject(project.id); setActive('all'); }}>
+            <span style={{ background: project.color }} /> <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
+          </button>)}
+          <button className="add-coll" onClick={() => setProjectModal('new')}><span>＋</span> Новый проект</button>
+          <div className="nav-label">Борды</div>
+          {projectCollections.map((c) => (
             <NavRow key={c.id} id={c.id} name={c.name} color={c.color} count={countOf(c.id)} coll={c} />
           ))}
           <button className="add-coll" onClick={() => setCollModal('new')}>
-            <span style={{ fontSize: 15 }}>＋</span> Новая коллекция
+            <span style={{ fontSize: 15 }}>＋</span> Новый борд
           </button>
         </div>
         <div className="side-foot">
@@ -603,11 +635,9 @@ export default function Wall({ initialCollections, initialItems }: Props) {
             <p>{selectedTag ? `#${selectedTag} · ` : ''}{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
           </div>
           {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
-          {active === 'all' && <select className="date-sort" aria-label="Сортировка ленты" value={feedOrder} onChange={(event) => setFeedOrder(event.target.value as 'newest' | 'oldest')}>
-            <option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option>
-          </select>}
+          {active === 'all' && <button className="icon-control" aria-label="Изменить порядок ленты" title={feedOrder === 'newest' ? 'Сначала новые' : 'Сначала старые'} onClick={() => setFeedOrder((value) => value === 'newest' ? 'oldest' : 'newest')}>↕</button>}
           <div className="reward-control">
-            <button className="reward-button" aria-expanded={rewardsOpen} onClick={() => setRewardsOpen((value) => !value)}><span>🏆</span><b>{progress?.xp || 0} XP</b></button>
+            <button className="reward-button icon-control" title={`${progress?.xp || 0} XP`} aria-label="Награды" aria-expanded={rewardsOpen} onClick={() => setRewardsOpen((value) => !value)}><span>♕</span></button>
             {rewardsOpen && <>
               <button className="menu-shield" aria-label="Закрыть награды" onClick={() => setRewardsOpen(false)} />
               <div className="rewards-menu">
@@ -619,14 +649,12 @@ export default function Wall({ initialCollections, initialItems }: Props) {
               </div>
             </>}
           </div>
-          <button className={'btn ghost move-toggle' + (moveMode ? ' on' : '')} aria-pressed={moveMode}
-            onClick={() => setMoveMode((value) => !value)}>{moveMode ? 'Готово' : 'Переместить'}</button>
+          <button className={'icon-control move-toggle' + (moveMode ? ' on' : '')} title={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-label={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-pressed={moveMode}
+            onClick={() => setMoveMode((value) => !value)}>{moveMode ? '✓' : '✥'}</button>
           <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'}
-            onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}>
-            <span>AI</span>{aiMode === 'auto' ? 'Включён' : 'Выключен'}
-          </button>
+            title={aiMode === 'auto' ? 'ИИ включён' : 'ИИ выключен'} aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span></button>
           <div className="add-element">
-            {!!aiRunning.length && <span className="ai-status"><i /> ИИ смотрит {aiRunning.length > 1 ? aiRunning.length : ''}</span>}
+            {!!aiRunning.length && <span className="ai-status" aria-label="ИИ анализирует" title="ИИ анализирует"><i /></span>}
             <button className="btn lime" aria-expanded={elementMenu} onClick={() => setElementMenu((v) => !v)}>＋ Элемент</button>
             {elementMenu && <>
               <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setElementMenu(false)} />
@@ -709,6 +737,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
       {editing && <EditModal item={editing} />}
       {collModal && <CollModal />}
+      {projectModal && <ProjectModal />}
       {newElement && <NewElementModal kind={newElement} />}
       {lightbox && <Lightbox />}
 
@@ -936,15 +965,19 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const [name, setName] = useState(c?.name || '');
     const [color, setColor] = useState(c?.color || '#C6F04A');
     const [access, setAccess] = useState<Collection['access_mode']>(c?.access_mode || 'private');
+    const [projectId, setProjectId] = useState(c?.project_id || (activeProject === 'all' ? '' : activeProject));
 
     return (
       <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setCollModal(null); }}>
         <div className="modal">
-          <h3>{c ? 'Коллекция' : 'Новая коллекция'}</h3>
+          <h3>{c ? 'Борд' : 'Новый борд'}</h3>
           <div className="field"><label>Название</label>
             <input value={name} autoFocus placeholder="Упаковка / Лендинги / Съёмки"
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && name.trim() && saveCollection(name.trim(), color, access)} /></div>
+              onKeyDown={(e) => e.key === 'Enter' && name.trim() && saveCollection(name.trim(), color, access, projectId || null)} /></div>
+          <div className="field"><label>Проект</label><select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+            <option value="">Без проекта</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select></div>
           <div className="field"><label>Цвет метки</label>
             <input type="color" value={color} style={{ height: 38, padding: 3 }} onChange={(e) => setColor(e.target.value)} /></div>
           <div className="field"><label>Доступ</label><select value={access} onChange={(e) => setAccess(e.target.value as Collection['access_mode'])}>
@@ -954,11 +987,23 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           <div className="modal-foot">
             {c && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteCollection(c)}>Удалить</button>}
             <button className="btn ghost" onClick={() => setCollModal(null)}>Отмена</button>
-            <button className="btn" onClick={() => name.trim() && saveCollection(name.trim(), color, access)}>{c ? 'Сохранить' : 'Создать'}</button>
+            <button className="btn" onClick={() => name.trim() && saveCollection(name.trim(), color, access, projectId || null)}>{c ? 'Сохранить' : 'Создать'}</button>
           </div>
         </div>
       </div>
     );
+  }
+
+  function ProjectModal() {
+    const project = projectModal === 'new' ? null : projectModal;
+    const [name, setName] = useState(project?.name || '');
+    const [color, setColor] = useState(project?.color || '#C6F04A');
+    return <div className="overlay on" onClick={(event) => { if (event.target === event.currentTarget) setProjectModal(null); }}><div className="modal">
+      <h3>{project ? 'Проект' : 'Новый проект'}</h3>
+      <div className="field"><label>Название</label><input autoFocus value={name} placeholder="Клиент / Бренд / Личное" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && name.trim() && saveProject(name.trim(), color)} /></div>
+      <div className="field"><label>Цвет</label><input type="color" value={color} style={{ height: 38, padding: 3 }} onChange={(event) => setColor(event.target.value)} /></div>
+      <div className="modal-foot">{project && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteProject(project)}>Удалить</button>}<button className="btn ghost" onClick={() => setProjectModal(null)}>Отмена</button><button className="btn" onClick={() => name.trim() && saveProject(name.trim(), color)}>{project ? 'Сохранить' : 'Создать'}</button></div>
+    </div></div>;
   }
 
   function Lightbox() {
@@ -967,20 +1012,36 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const it = list[idx];
     if (!it) return null;
     const go = (d: number) => setLightbox(list[(idx + d + list.length) % list.length].id);
+    const [sourceUrl, setSourceUrl] = useState(it.url || '');
+    const [removingBackground, setRemovingBackground] = useState(false);
+
+    async function removeBackground() {
+      setRemovingBackground(true);
+      try {
+        const response = await fetch(`/api/items/${it.id}/remove-background`, { method: 'POST' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Не удалось удалить фон');
+        setItems((current) => current.map((item) => item.id === it.id ? data : item));
+        say('Фон удалён');
+      } catch (error) { say(error instanceof Error ? error.message : 'Не удалось удалить фон'); }
+      finally { setRemovingBackground(false); }
+    }
 
     return (
-      <div className="lb on" onClick={(e) => { if (e.target === e.currentTarget) setLightbox(null); }}>
-        <button className="lb-x" onClick={() => setLightbox(null)}>✕</button>
-        <button className="lb-arrow l" onClick={(e) => { e.stopPropagation(); go(-1); }}>‹</button>
-        <button className="lb-arrow r" onClick={(e) => { e.stopPropagation(); go(1); }}>›</button>
-        {it.kind === 'video'
-          ? <video src={it.src || ''} controls autoPlay />
-          : <img src={it.src || it.thumb || ''} alt="" />}
-        <div className="lb-cap">
-          <span>{it.title} · {idx + 1}/{list.length}</span>
-          {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
+      <div className="lb on">
+        <button className="lb-back" aria-label="Назад" onClick={() => setLightbox(null)}>←</button>
+        <div className="pin-detail">
+          <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} controls autoPlay /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}</div>
+          <div className="pin-detail-info">
+            <div className="pin-detail-actions"><button aria-label="Предыдущая" onClick={() => go(-1)}>‹</button><span>{idx + 1}/{list.length}</span><button aria-label="Следующая" onClick={() => go(1)}>›</button></div>
+            <h2>{it.title || 'Без названия'}</h2>{it.note && <p>{it.note}</p>}
+            <div className="field"><label>Ссылка-источник</label><div className="source-row"><input value={sourceUrl} placeholder="https://..." onChange={(event) => setSourceUrl(event.target.value)} onBlur={() => patch(it.id, { url: sourceUrl.trim() || null })} /><button className="btn ghost" disabled={!sourceUrl.trim()} onClick={() => window.open(sourceUrl, '_blank', 'noopener,noreferrer')}>↗</button></div></div>
+            {it.kind === 'image' && <button className="remove-bg" disabled={removingBackground} onClick={removeBackground}>{removingBackground ? 'Удаляю фон…' : '✦ Удалить фон'}</button>}
+            {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
             event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
           }}>#{tag}</button>)}</div>}
+            <button className="detail-edit" onClick={() => { setEditing(it); setLightbox(null); }}>Редактировать карточку</button>
+          </div>
         </div>
       </div>
     );

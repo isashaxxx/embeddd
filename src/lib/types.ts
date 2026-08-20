@@ -6,7 +6,10 @@ export type Collection = {
   access_mode: 'private' | 'link';
   share_token: string | null;
   created_at: string;
+  project_id: string | null;
 };
+
+export type Project = { id: string; name: string; color: string; position: number; created_at: string };
 
 export type Item = {
   id: string;
