@@ -7,6 +7,7 @@ import { shrink, videoSize } from '@/lib/resize';
 type Props = { initialCollections: Collection[]; initialItems: Item[] };
 type Active = 'all' | 'fav' | string;
 type NewElement = 'link' | 'text' | 'heading' | 'callout' | 'html';
+type AiSuggestion = { itemId: string; title: string; description: string; collections: string[] };
 
 export default function Wall({ initialCollections, initialItems }: Props) {
   const [collections, setCollections] = useState(initialCollections);
@@ -24,6 +25,8 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
   const [newElement, setNewElement] = useState<NewElement | null>(null);
+  const [aiQueue, setAiQueue] = useState<AiSuggestion[]>([]);
+  const [aiRunning, setAiRunning] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -80,6 +83,26 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     setNewElement(null);
   }
 
+  async function analyzeImage(item: Item) {
+    if (aiRunning.includes(item.id)) return;
+    setAiRunning((p) => [...p, item.id]);
+    try {
+      const res = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ imageUrl: item.src || item.thumb, existingCollections: collections.map((c) => c.name) }),
+      });
+      const result = await res.json();
+      if (!res.ok) return say(result.error || 'ИИ-анализ не сработал');
+      await patch(item.id, { title: result.title });
+      setAiQueue((p) => [...p, { itemId: item.id, ...result }]);
+    } catch {
+      say('Не удалось связаться с ИИ');
+    } finally {
+      setAiRunning((p) => p.filter((id) => id !== item.id));
+    }
+  }
+
   async function addFiles(files: File[]) {
     const list = files.filter((f) => /^(image|video)\//.test(f.type));
     if (!list.length) return say('Нужны картинки или видео');
@@ -133,6 +156,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         });
         const real: Item = await res.json();
         setItems((p) => [real, ...p]);
+        if (!isVideo) void analyzeImage(real);
       } catch {
         say('Файл не загрузился: ' + file.name);
       }
@@ -328,6 +352,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
             <p>{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
           </div>
           <div className="add-element">
+            {!!aiRunning.length && <span className="ai-status"><i /> ИИ смотрит {aiRunning.length > 1 ? aiRunning.length : ''}</span>}
             <button className="btn lime" aria-expanded={elementMenu} onClick={() => setElementMenu((v) => !v)}>＋ Элемент</button>
             {elementMenu && <>
               <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setElementMenu(false)} />
@@ -369,6 +394,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       {editing && <EditModal item={editing} />}
       {collModal && <CollModal />}
       {newElement && <NewElementModal kind={newElement} />}
+      {!!aiQueue.length && <AiCollectionModal suggestion={aiQueue[0]} />}
       {lightbox && <Lightbox />}
 
       {upload && (
@@ -522,6 +548,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         </button>
 
         <div className="tools">
+          {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); analyzeImage(item); }}>{aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
           {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
           <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); setEditing(item); }}>✎</button>
           <button className="del" aria-label="Удалить карточку" onClick={(e) => { e.stopPropagation(); remove(item); }}>×</button>
@@ -567,6 +594,52 @@ export default function Wall({ initialCollections, initialItems }: Props) {
               : <textarea value={value} autoFocus rows={kind === 'html' ? 10 : 5} placeholder={kind === 'html' ? '<div>…</div>' : 'Начни писать…'} onChange={(e) => setValue(e.target.value)} />}
           </div>
           <div className="modal-foot"><button className="btn ghost" onClick={() => setNewElement(null)}>Отмена</button><button className="btn" onClick={submit}>Добавить</button></div>
+        </div>
+      </div>
+    );
+  }
+
+  function AiCollectionModal({ suggestion }: { suggestion: AiSuggestion }) {
+    const [selected, setSelected] = useState(suggestion.collections[0] || '');
+    const [name, setName] = useState(suggestion.title);
+    const close = () => setAiQueue((p) => p.slice(1));
+    const apply = async () => {
+      const cleanTitle = name.trim() || suggestion.title;
+      await patch(suggestion.itemId, { title: cleanTitle, note: suggestion.description });
+      if (selected) {
+        let collection = collections.find((c) => c.name.toLocaleLowerCase() === selected.toLocaleLowerCase());
+        if (!collection) {
+          const colors = ['#C6F04A', '#FFB86B', '#87CEEB', '#D6B4FC', '#FF8F8F'];
+          const res = await fetch('/api/collections', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: selected, color: colors[collections.length % colors.length] }),
+          });
+          if (res.ok) {
+            collection = await res.json();
+            setCollections((p) => [...p, collection!]);
+          }
+        }
+        if (collection) await patch(suggestion.itemId, { collectionId: collection.id });
+      }
+      close();
+      say(selected ? 'ИИ разложил карточку' : 'Название сохранено');
+    };
+    return (
+      <div className="overlay on ai-overlay" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+        <div className="modal ai-modal">
+          <div className="ai-kicker"><i /> Анализ готов</div>
+          <h3>Как назвать и куда положить?</h3>
+          <div className="field"><label>Название карточки</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <p className="ai-description">{suggestion.description}</p>
+          <div className="field"><label>ИИ предлагает коллекции</label>
+            <div className="ai-options">
+              {suggestion.collections.map((option) => {
+                const exists = collections.some((c) => c.name.toLocaleLowerCase() === option.toLocaleLowerCase());
+                return <button key={option} className={selected === option ? 'on' : ''} onClick={() => setSelected(option)}><span>{option}</span><small>{exists ? 'существующая' : 'создать новую'}</small></button>;
+              })}
+            </div>
+          </div>
+          <div className="modal-foot"><button className="btn ghost" onClick={close}>Только название</button><button className="btn" onClick={apply}>{selected && !collections.some((c) => c.name.toLocaleLowerCase() === selected.toLocaleLowerCase()) ? 'Создать и переместить' : 'Применить'}</button></div>
         </div>
       </div>
     );
