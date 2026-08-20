@@ -702,7 +702,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               <button className="project-row project-heading" onClick={() => { setActiveProject(project.id); setActive('all'); }}>
                 <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
               </button>
-              <div className="project-tree-boards">{collections.filter((board) => board.project_id === project.id).map((board) => <NavRow key={board.id} id={board.id} name={board.name} color={board.color} count={countOf(board.id)} coll={board} compact />)}</div>
+              <div className="project-tree-boards">{collections.filter((board) => board.project_id === project.id).map((board) => <NavRow key={board.id} id={board.id} name={board.name} color={board.color} count={countOf(board.id)} coll={board} />)}</div>
             </div>)}
             <button className="add-coll" onClick={() => setProjectModal('new')}><span>＋</span> Новый проект</button>
             <div className="nav-label">Борды без проекта</div>
