@@ -133,6 +133,8 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .project-row{width:100%;height:38px;padding:0 10px;border-radius:10px;display:flex;align-items:center;gap:9px;text-align:left;color:var(--muted)}
 .project-row:hover,.project-row.on{background:var(--hover);color:var(--ink)}
 .project-row>span{width:11px;height:11px;border-radius:4px}.project-row>b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:550}.project-row>i{font-style:normal;letter-spacing:1px;opacity:0}.project-row:hover>i{opacity:.65}
+.project-tree{border-radius:11px;padding:2px;transition:background .12s,box-shadow .12s}.project-tree.drop{background:rgba(198,240,74,.2);box-shadow:inset 0 0 0 1px var(--accent)}
+.project-tree-boards{padding-left:19px}.project-tree-boards:empty{display:none}.coll.compact{height:31px;padding:0 8px}.coll.compact .coll-dot{width:7px;height:7px}.coll.compact .coll-name{font-size:12px}.coll.board-dragging{opacity:.35}
 .project-workspace{display:flex;align-items:center;gap:9px;margin:2px 0 14px;padding:5px 3px 12px;border-bottom:1px solid var(--line-soft)}
 .project-workspace>button{width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;border-radius:8px}.project-workspace>button:hover{background:var(--hover)}.project-workspace .ui-icon{width:18px;height:18px}
 .project-workspace>div{display:flex;flex:1;min-width:0;flex-direction:column}.project-workspace b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.project-workspace small{margin-top:2px;color:var(--muted);font-size:10px}
@@ -155,7 +157,8 @@ button{cursor:pointer;border:none;background:none;padding:0}
 /* ---------- grid ---------- */
 .scroll{flex:1;overflow-y:auto;padding:8px 20px 120px;scroll-behavior:smooth}
 .grid{display:block;position:relative;width:calc(100% + 16px);min-height:1px;margin:0 -8px;container-type:inline-size}
-.grid-item{display:block;position:absolute;z-index:1;width:50%;padding:0 8px 24px;box-sizing:border-box}
+.grid-item{display:block;position:absolute;z-index:1;width:50%;padding:0 8px 24px;box-sizing:border-box;backface-visibility:hidden}
+.grid-item img{backface-visibility:hidden;transform:translateZ(0)}
 .grid-item-content{position:relative;width:100%}
 .collection-board{display:block;width:100%;text-align:left;position:relative}
 .board-open{position:absolute;inset:0;z-index:2;width:100%;border-radius:18px}
@@ -372,7 +375,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .pin-detail-media{min-height:560px;background:#242421;display:flex;align-items:center;justify-content:center}
 .pin-detail-media img,.pin-detail-media video{display:block;max-width:100%;max-height:calc(100vh - 112px);object-fit:contain}
 .pin-detail-info{padding:28px;display:flex;flex-direction:column;align-items:stretch;background:#fff}
-.pin-detail-info h2{font-size:25px;margin:28px 0 20px;letter-spacing:-.035em}.description-field textarea{min-height:150px;background:var(--hover);border:0;line-height:1.5;resize:vertical}.description-field textarea:focus{background:#fff;box-shadow:0 0 0 2px var(--ink)}
+.pin-detail-info h2{font-size:25px;margin:28px 0 20px;letter-spacing:-.035em}.description-field{margin-top:2px}.description-field label{display:block;margin-bottom:7px;font-family:var(--font-mono),monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.description-field textarea{width:100%;min-height:150px;padding:11px;border:0;border-radius:12px;background:var(--hover);line-height:1.5;resize:vertical;outline:0}.description-field textarea:focus{background:#fff;box-shadow:0 0 0 2px var(--ink)}.description-read{width:100%;min-height:74px;padding:11px;border-radius:12px;text-align:left;white-space:pre-wrap;line-height:1.5;background:transparent}.description-read:hover{background:var(--hover)}.description-read.empty{color:var(--muted)}
 .pin-detail-actions{display:flex;align-items:center;gap:8px}.pin-detail-actions button{width:36px;height:36px;border-radius:50%;background:var(--hover);font-size:23px}.pin-detail-actions span{font-size:11px;color:var(--muted)}
 .detail-edit{margin-top:auto;padding-top:28px;text-align:left;text-decoration:underline;text-underline-offset:4px;color:var(--muted)}
 .lb-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:20px}

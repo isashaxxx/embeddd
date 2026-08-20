@@ -10,7 +10,9 @@ export async function POST(req: Request) {
   const sql = db();
   const [{ max }] = (await sql`select coalesce(max(position), 0) as max from collections`) as { max: number }[];
   const id = uid();
-  const slug = slugify(name, id);
+  const base = slugify(name);
+  const same = (await sql`select count(*)::int as count from collections where slug = ${base} or slug like ${`${base}-%`}`) as unknown as { count: number }[];
+  const slug = same[0].count ? `${base}-${same[0].count + 1}` : base;
   const mode = accessMode === 'link' ? 'link' : 'private';
   const shareToken = mode === 'link' ? crypto.randomUUID().replaceAll('-', '') : null;
   await sql`insert into collections (id, slug, name, color, position, access_mode, share_token, project_id)

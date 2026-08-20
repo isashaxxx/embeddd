@@ -15,7 +15,7 @@ export function db() {
 export const uid = () =>
   Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-export function slugify(value: string, id = uid()) {
+export function slugify(value: string) {
   const base = value.toLocaleLowerCase().normalize('NFKD').replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 54) || 'item';
-  return `${base}-${id.slice(-7)}`;
+  return base;
 }

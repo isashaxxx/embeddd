@@ -9,7 +9,7 @@ export default async function PostPage({ params }: { params: Promise<{ slug: str
   const sql = db();
   const [projects, collections, items, foundRaw] = await Promise.all([
     sql`select * from projects order by position asc, created_at asc`, sql`select * from collections order by position asc, created_at asc`,
-    sql`select * from items order by position asc`, sql`select id from items where slug = ${slug} limit 1`,
+    sql`select * from items order by position asc`, sql`select id from items where slug = ${slug} or id = ${slug} limit 1`,
   ]);
   const found = foundRaw as unknown as { id: string }[];
   if (!found.length) notFound();

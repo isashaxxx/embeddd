@@ -34,9 +34,11 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
   const [projectModal, setProjectModal] = useState<Project | 'new' | null>(null);
   const [activeProject, setActiveProject] = useState<string>(initialProject);
-  const [lightbox, setLightbox] = useState<string | null>(() => initialPost ? initialItems.find((item) => item.slug === initialPost)?.id || null : null);
+  const [lightbox, setLightbox] = useState<string | null>(() => initialPost ? initialItems.find((item) => item.slug === initialPost || item.id === initialPost)?.id || null : null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [draggingBoard, setDraggingBoard] = useState<string | null>(null);
+  const [projectDrop, setProjectDrop] = useState<string | null>(null);
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -53,6 +55,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [gridMetrics, setGridMetrics] = useState({ width: 0, columns: 2 });
   const fileRef = useRef<HTMLInputElement>(null);
+  const topSearchRef = useRef<HTMLDivElement>(null);
   const dragResetTimer = useRef<number | null>(null);
   const selectionBoxRef = useRef<HTMLDivElement>(null);
   const selectionIdsRef = useRef<Set<string>>(new Set());
@@ -118,7 +121,16 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     ...feedEntries.map((entry) => entry.type === 'item'
       ? `${entry.value.id}:${isBlock(entry.value) ? elementSize(entry.value.display_size) : 'pin'}`
       : `board:${entry.value.id}`),
-  ].sort().join('|');
+  ].join('|');
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!topSearchRef.current?.contains(event.target as Node)) { setSearchOpen(false); setSearch(''); }
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [searchOpen]);
 
   useEffect(() => {
     const grid = gridRef.current;
@@ -157,7 +169,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         },
         dragContainer: document.body,
         layout: { fillGaps: true, horizontal: false, rounding: true },
-        layoutDuration: 260,
+        layoutDuration: moveMode ? 180 : 0,
         layoutEasing: 'ease-out',
         dragSortHeuristics: { sortInterval: 45, minDragDistance: 6, minBounceBackAngle: 1 },
         dragRelease: { duration: 240, easing: 'ease-out', useDragContainer: false },
@@ -533,6 +545,17 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
   }
 
+  async function moveBoardToProject(boardId: string, projectId: string | null) {
+    const board = collections.find((value) => value.id === boardId);
+    if (!board || board.project_id === projectId) return;
+    setCollections((current) => current.map((value) => value.id === boardId ? { ...value, project_id: projectId } : value));
+    const response = await fetch(`/api/collections/${boardId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) });
+    if (!response.ok) {
+      setCollections((current) => current.map((value) => value.id === boardId ? board : value));
+      say('Не удалось переместить борд');
+    } else say(projectId ? 'Борд перемещён в проект' : 'Борд вынесен из проекта');
+  }
+
   async function deleteCollection(c: Collection) {
     if (!confirm(`Удалить «${c.name}»? Карточки останутся во «Всём».`)) return;
     setCollections((p) => p.filter((x) => x.id !== c.id));
@@ -623,9 +646,12 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <NavRow id="all" name="Всё" count={countOf('all')} />
             <NavRow id="fav" name="Избранное" count={countOf('fav')} />
             <div className="nav-label">Проекты</div>
-            {projects.map((project) => <button key={project.id} className="project-row" onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/project/${project.slug}`); }}>
-              <span style={{ background: project.color }} /> <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
-            </button>)}
+            {projects.map((project) => <div key={project.id} className={'project-tree' + (projectDrop === project.id ? ' drop' : '')} onDragOver={(event) => { if (!draggingBoard) return; event.preventDefault(); setProjectDrop(project.id); }} onDragLeave={() => setProjectDrop(null)} onDrop={(event) => { event.preventDefault(); if (draggingBoard) void moveBoardToProject(draggingBoard, project.id); setDraggingBoard(null); setProjectDrop(null); }}>
+              <button className="project-row" onClick={() => { setActiveProject(project.id); setActive('all'); router.push(`/projects/${project.slug}`); }}>
+                <span style={{ background: project.color }} /> <b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
+              </button>
+              <div className="project-tree-boards">{collections.filter((board) => board.project_id === project.id).map((board) => <NavRow key={board.id} id={board.id} name={board.name} color={board.color} count={countOf(board.id)} coll={board} compact />)}</div>
+            </div>)}
             <button className="add-coll" onClick={() => setProjectModal('new')}><span>＋</span> Новый проект</button>
             <div className="nav-label">Борды без проекта</div>
             {collections.filter((c) => !c.project_id).map((c) => <NavRow key={c.id} id={c.id} name={c.name} color={c.color} count={countOf(c.id)} coll={c} />)}
@@ -645,7 +671,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <p>{selectedTag ? `#${selectedTag} · ` : ''}{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
           </div>
           {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
-          <div className={'top-search' + (searchOpen ? ' open' : '')}>{searchOpen && <input autoFocus value={search} placeholder="Поиск" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />}<button className="icon-control" aria-label="Поиск" title="Поиск" onClick={() => { if (searchOpen && search) setSearch(''); else setSearchOpen((value) => !value); }}><Icon name={searchOpen && search ? 'close' : 'search'} /></button></div>
+          <div ref={topSearchRef} className={'top-search' + (searchOpen ? ' open' : '')}>{searchOpen && <input autoFocus value={search} placeholder="Поиск" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />}<button className="icon-control" aria-label="Поиск" title="Поиск" onClick={() => { if (searchOpen && search) setSearch(''); else setSearchOpen((value) => !value); }}><Icon name={searchOpen && search ? 'close' : 'search'} /></button></div>
           {active === 'all' && <button className="icon-control" aria-label="Изменить порядок ленты" title={feedOrder === 'newest' ? 'Сначала новые' : 'Сначала старые'} onClick={() => setFeedOrder((value) => value === 'newest' ? 'oldest' : 'newest')}><Icon name="sort" /></button>}
           <div className="reward-control">
             <button className="reward-button icon-control" title={`${progress?.xp || 0} XP`} aria-label="Награды" aria-expanded={rewardsOpen} onClick={() => setRewardsOpen((value) => !value)}><Icon name="award" /></button>
@@ -693,7 +719,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
               return <div key={`board-${collection.id}`} className="grid-item collection-board-item" style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
                 <div className="grid-item-content collection-board">
-                  <button className="board-open" onClick={() => { setActive(collection.id); router.push(`/board/${collection.slug}`); }} aria-label={`Открыть ${collection.name}`} />
+                  <button className="board-open" onClick={() => { setActive(collection.id); router.push(`/boards/${collection.slug}`); }} aria-label={`Открыть ${collection.name}`} />
                   <span className="board-covers">
                     {covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)}
                     {!covers.length && <span className="board-empty" style={{ background: collection.color }} />}
@@ -768,15 +794,18 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   /* ---------------- вложенные компоненты ---------------- */
 
-  function NavRow({ id, name, color, count, coll }: { id: Active; name: string; color?: string; count: number; coll?: Collection }) {
+  function NavRow({ id, name, color, count, coll, compact = false }: { id: Active; name: string; color?: string; count: number; coll?: Collection; compact?: boolean }) {
     return (
       <div
+        draggable={!!coll}
+        onDragStart={(event) => { if (!coll) return; setDraggingBoard(coll.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', coll.id); }}
+        onDragEnd={() => { setDraggingBoard(null); setProjectDrop(null); }}
         data-collection-drop={id}
-        className={'coll' + (active === id ? ' active' : '')}
+        className={'coll' + (active === id ? ' active' : '') + (compact ? ' compact' : '') + (draggingBoard === coll?.id ? ' board-dragging' : '')}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('.coll-edit')) return;
           setActive(id); setMenuOpen(false);
-          if (coll) router.push(`/board/${coll.slug}`); else router.push('/');
+          if (coll) router.push(`/boards/${coll.slug}`); else router.push('/');
         }}
       >
         <span className="coll-dot" style={color ? { background: color } : undefined} />
@@ -804,7 +833,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; });
             return;
           }
-          if (isMedia) { setLightbox(item.id); router.push(`/post/${item.slug}`, { scroll: false }); }
+          if (isMedia) { setLightbox(item.id); window.history.pushState({ embedddPost: item.id }, '', `/posts/${item.slug}`); }
           else if (item.url) window.open(item.url, '_blank', 'noopener');
         }}
       >
@@ -1026,19 +1055,20 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const go = (d: number) => {
       const next = list[(idx + d + list.length) % list.length];
       setLightbox(next.id);
-      router.replace(`/post/${next.slug}`, { scroll: false });
+      window.history.replaceState({ embedddPost: next.id }, '', `/posts/${next.slug}`);
     };
     const [description, setDescription] = useState(it.note || '');
+    const [editingDescription, setEditingDescription] = useState(false);
 
     return (
-      <div className="lb on">
+      <div className="lb on" onClick={(event) => { if (event.target === event.currentTarget) { setLightbox(null); router.back(); } }}>
         <button className="lb-back" aria-label="Назад" onClick={() => { setLightbox(null); router.back(); }}><Icon name="back" /></button>
         <div className="pin-detail">
           <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} controls autoPlay /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}</div>
           <div className="pin-detail-info">
             <div className="pin-detail-actions"><button aria-label="Предыдущая" onClick={() => go(-1)}>‹</button><span>{idx + 1}/{list.length}</span><button aria-label="Следующая" onClick={() => go(1)}>›</button></div>
             <h2>{it.title || 'Без названия'}</h2>
-            <div className="field description-field"><label>Описание</label><textarea value={description} placeholder="Добавить описание…" onChange={(event) => setDescription(event.target.value)} onBlur={() => patch(it.id, { note: description })} /></div>
+            <div className="description-field"><label>Описание</label>{editingDescription ? <textarea autoFocus value={description} placeholder="Добавить описание…" onChange={(event) => setDescription(event.target.value)} onBlur={() => { void patch(it.id, { note: description }); setEditingDescription(false); }} /> : <button className={'description-read' + (!description ? ' empty' : '')} onClick={() => setEditingDescription(true)}>{description || 'Добавить описание'}</button>}</div>
             {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
             event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
           }}>#{tag}</button>)}</div>}

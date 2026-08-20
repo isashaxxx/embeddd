@@ -9,7 +9,9 @@ export async function POST(req: Request) {
   const sql = db();
   const [{ max }] = (await sql`select coalesce(max(position), 0) as max from projects`) as { max: number }[];
   const id = uid();
-  const slug = slugify(name, id);
+  const base = slugify(name);
+  const same = (await sql`select count(*)::int as count from projects where slug = ${base} or slug like ${`${base}-%`}`) as unknown as { count: number }[];
+  const slug = same[0].count ? `${base}-${same[0].count + 1}` : base;
   await sql`insert into projects (id, slug, name, color, position) values (${id}, ${slug}, ${name.trim()}, ${color || '#C6F04A'}, ${Number(max) + 1})`;
   const rows = (await sql`select * from projects where id = ${id}`) as unknown[];
   return NextResponse.json(rows[0]);

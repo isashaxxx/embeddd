@@ -20,13 +20,18 @@ export async function POST(req: Request) {
   const [{ min }] = (await sql`select coalesce(min(position), 0) as min from items`) as { min: number }[];
   const position = Number(min) - 1;
   const id = uid();
+  async function itemSlug(value: string) {
+    const base = slugify(value);
+    const same = (await sql`select count(*)::int as count from items where slug = ${base} or slug like ${`${base}-%`}`) as unknown as { count: number }[];
+    return same[0].count ? `${base}-${same[0].count + 1}` : base;
+  }
 
   if (body.upload) {
     const u = body.upload;
     await sql`
       insert into items (id, slug, collection_id, kind, provider, position, src, thumb, width, height,
                          r2_key, r2_thumb_key, title)
-      values (${id}, ${slugify(u.title || 'image', id)}, ${collectionId}, ${u.kind}, 'local', ${position}, ${u.src}, ${u.thumb ?? u.src},
+      values (${id}, ${await itemSlug(u.title || 'image')}, ${collectionId}, ${u.kind}, 'local', ${position}, ${u.src}, ${u.thumb ?? u.src},
               ${u.width ?? null}, ${u.height ?? null}, ${u.key}, ${u.thumbKey ?? null}, ${u.title ?? ''})`;
     return NextResponse.json(await one(id));
   }
@@ -39,7 +44,7 @@ export async function POST(req: Request) {
     const note = String(body.block.note || '').slice(0, 100000);
     await sql`
       insert into items (id, slug, collection_id, kind, provider, position, embed_h, title, note, display_size, text_style)
-      values (${id}, ${slugify(title || kind, id)}, ${collectionId}, ${kind}, 'block', ${position}, ${kind === 'html' ? 280 : null}, ${title}, ${note},
+      values (${id}, ${await itemSlug(title || kind)}, ${collectionId}, ${kind}, 'block', ${position}, ${kind === 'html' ? 280 : null}, ${title}, ${note},
               ${['S', 'M', 'L'].includes(String(body.block.displaySize)) ? String(body.block.displaySize) : 'S'}, ${String(body.block.textStyle || 'p')})`;
     return NextResponse.json(await one(id));
   }
@@ -59,7 +64,7 @@ export async function POST(req: Request) {
   await sql`
     insert into items (id, slug, collection_id, kind, provider, position, url, host,
                        embed_url, embed_h, ratio, src, thumb, title)
-    values (${id}, ${slugify(title || p.host || 'link', id)}, ${collectionId}, ${p.kind}, ${p.provider}, ${position}, ${p.url}, ${p.host},
+    values (${id}, ${await itemSlug(title || p.host || 'link')}, ${collectionId}, ${p.kind}, ${p.provider}, ${position}, ${p.url}, ${p.host},
             ${p.embedUrl ?? null}, ${p.embedH ?? null}, ${p.ratio ?? null},
             ${p.src ?? null}, ${thumb}, ${title})`;
 
