@@ -33,6 +33,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [dropping, setDropping] = useState(false);
+  const [moveMode, setMoveMode] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
   const [newElement, setNewElement] = useState<NewElement | null>(null);
@@ -109,7 +110,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       if (cancelled || !grid.isConnected) return;
       const instance = new MuuriGrid(grid, {
         items: '.grid-item',
-        dragEnabled: true,
+        dragEnabled: moveMode,
         dragHandle: null,
         dragStartPredicate: (item, event) => {
           if (item.getElement()?.classList.contains('collection-board-item')) return false;
@@ -182,7 +183,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       muuriRef.current?.destroy();
       muuriRef.current = null;
     };
-  }, [gridSignature]);
+  }, [gridSignature, moveMode]);
 
   function persistGridOrder(ids: string[]) {
     const orderedSet = new Set(ids);
@@ -233,6 +234,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
   }
 
   function startSelection(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerType !== 'mouse') return;
     if (e.button !== 0 || (e.target as HTMLElement).closest('.card, button, input, textarea, select, a')) return;
     const startX = e.clientX, startY = e.clientY;
     const box = selectionBoxRef.current!;
@@ -492,38 +494,46 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   useEffect(() => {
     const enter = (e: DragEvent) => {
-      if (![...(e.dataTransfer?.types || [])].some((t) => t === 'Files' || t === 'text/uri-list')) return;
+      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
       dragDepth.current++;
       setDropping(true);
     };
     const leave = () => { if (--dragDepth.current <= 0) { dragDepth.current = 0; setDropping(false); } };
-    const over = (e: DragEvent) => e.preventDefault();
+    const over = (e: DragEvent) => {
+      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
     const drop = (e: DragEvent) => {
       dragDepth.current = 0; setDropping(false);
+      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
       e.preventDefault();
       const files = [...(e.dataTransfer?.files || [])];
       if (files.length) return addFiles(files);
-      const uri = e.dataTransfer?.getData('text/uri-list') || e.dataTransfer?.getData('text');
-      if (uri) addLink(uri.split('\n')[0]);
     };
+    const reset = () => { dragDepth.current = 0; setDropping(false); };
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragleave', leave);
     window.addEventListener('dragover', over);
     window.addEventListener('drop', drop);
+    window.addEventListener('dragend', reset);
+    window.addEventListener('blur', reset);
     return () => {
       window.removeEventListener('dragenter', enter);
       window.removeEventListener('dragleave', leave);
       window.removeEventListener('dragover', over);
       window.removeEventListener('drop', drop);
+      window.removeEventListener('dragend', reset);
+      window.removeEventListener('blur', reset);
     };
-  });
+  }, []);
 
   /* ---------------- разметка ---------------- */
 
   const title = active === 'all' ? 'Всё' : active === 'fav' ? 'Избранное' : collections.find((c) => c.id === active)?.name ?? 'Всё';
 
   return (
-    <div className="app">
+    <div className={'app' + (moveMode ? ' move-mode' : '')}>
       <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
         <div className="brand"><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></div>
         <div className="nav">
@@ -549,6 +559,8 @@ export default function Wall({ initialCollections, initialItems }: Props) {
             <h1>{title}</h1>
             <p>{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p>
           </div>
+          <button className={'btn ghost move-toggle' + (moveMode ? ' on' : '')} aria-pressed={moveMode}
+            onClick={() => setMoveMode((value) => !value)}>{moveMode ? 'Готово' : 'Переместить'}</button>
           <div className="ai-control">
             <button className={'ai-mode-button mode-' + aiMode} aria-expanded={aiMenu} onClick={() => setAiMenu((v) => !v)}>
               <span>AI</span>{aiMode === 'auto' ? 'Размещает сам' : aiMode === 'ask' ? 'Спрашивает' : 'Выключен'}
@@ -775,7 +787,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           <button className="del" aria-label="Удалить карточку" onClick={(e) => { e.stopPropagation(); remove(item); }}>×</button>
         </div>
 
-        <div className="grip" title="Переместить"><span>⠿</span> Переместить</div>
+        {moveMode && <div className="grip" title="Переместить"><span>⠿</span> Переместить</div>}
 
         {(item.kind === 'html' || (item.kind === 'embed' && !item.ratio)) && (
           <div className="resize" onPointerDown={(e) => {

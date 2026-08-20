@@ -96,6 +96,9 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .btn:active{transform:scale(.97)}
 .btn.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
 .btn.lime{background:var(--ink);color:#fff}
+.move-toggle{margin-left:auto}
+.move-toggle.on{background:var(--accent);border-color:var(--accent);color:var(--ink)}
+.move-toggle+.ai-control{margin-left:0}
 .menu-btn{display:none}
 .ai-control{position:relative;margin-left:auto;z-index:8}
 .ai-mode-button{display:flex;align-items:center;gap:7px;padding:9px 12px;border:0;border-radius:999px;background:var(--hover);color:var(--muted);font-size:11px;white-space:nowrap}
@@ -147,15 +150,15 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .card{
   position:relative;width:100%;margin:0;background:var(--panel);
   border-radius:var(--r);border:1px solid var(--line-soft);
-  overflow:hidden;cursor:zoom-in;
+  overflow:hidden;cursor:default;touch-action:pan-y;
   box-shadow:var(--shadow);
   transition:box-shadow .18s, transform .18s;
 }
 .card:hover{box-shadow:var(--shadow-hi);transform:translateY(-2px)}
 .pin-card{background:transparent;border:0;border-radius:0;overflow:visible;box-shadow:none}
 .pin-card:hover{box-shadow:none;transform:none}
-.pin-card,.block-card{cursor:grab}
-.muuri-item-dragging .card{cursor:grabbing}
+.move-mode .pin-card,.move-mode .block-card{cursor:grab;touch-action:none}
+.move-mode .muuri-item-dragging .card{cursor:grabbing}
 .pin-card>img.media,.pin-card>video.media{border-radius:18px}
 .pin-card .media.crop-compact{aspect-ratio:4/5;object-fit:cover}
 .pin-card .media.crop-portrait{aspect-ratio:2/3;object-fit:cover}
@@ -235,7 +238,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 }
 .grip span{font-size:13px;margin-right:4px;vertical-align:-1px}
 .grip:active{cursor:grabbing}
-.card:hover .grip{opacity:1}
+.move-mode .card:hover .grip{opacity:1}
 .resize{
   position:absolute;bottom:0;left:0;right:0;height:12px;cursor:ns-resize;z-index:5;
 }
@@ -306,7 +309,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
   align-items:center;justify-content:center;
   background:rgba(237,235,228,.82);backdrop-filter:blur(3px);
   border:3px dashed var(--ink);border-radius:18px;margin:10px;
-  font-size:17px;font-weight:600;letter-spacing:-.01em;
+  font-size:17px;font-weight:600;letter-spacing:-.01em;pointer-events:none;
 }
 .dropzone.on{display:flex}
 
@@ -370,7 +373,8 @@ button{cursor:pointer;border:none;background:none;padding:0}
   .selection-bar{left:50%;max-width:calc(100vw - 20px);overflow-x:auto}
 }
 @media (hover:none){
-  .tools,.star,.grip{opacity:1}
+  .tools,.star{opacity:1}
+  .move-mode .grip{opacity:1}
   .card:hover{transform:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
