@@ -8,10 +8,14 @@ import { shrink, videoSize } from '@/lib/resize';
 type Props = { initialCollections: Collection[]; initialItems: Item[] };
 type Active = 'all' | 'fav' | string;
 type NewElement = 'link' | 'text' | 'callout' | 'html';
-type CardSize = Item['display_size'];
+type ElementSize = 'S' | 'M' | 'L';
 type TextStyle = Item['text_style'];
 type AiSuggestion = { itemId: string; title: string; description: string; collections: string[] };
 type AiMode = 'auto' | 'ask' | 'off';
+
+const BLOCK_KINDS = new Set(['text', 'heading', 'callout', 'html', 'divider']);
+const isBlock = (item: Item) => BLOCK_KINDS.has(item.kind);
+const elementSize = (size: Item['display_size']): ElementSize => size === 'M' ? 'M' : size === 'L' || size === 'XL' ? 'L' : 'S';
 
 export default function Wall({ initialCollections, initialItems }: Props) {
   const [collections, setCollections] = useState(initialCollections);
@@ -67,7 +71,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
   const targetCollection = () => (active === 'all' || active === 'fav' ? null : active);
 
-  const gridSignature = visible.map((item) => `${item.id}:${item.display_size}`).join('|');
+  const gridSignature = visible.map((item) => `${item.id}:${isBlock(item) ? elementSize(item.display_size) : 'pin'}`).join('|');
 
   // Muuri owns geometry and sorting. React owns content and persistence.
   useEffect(() => {
@@ -172,11 +176,11 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     setItems((p) => p.map((i) => (i.id === tempId ? real : i)));
   }
 
-  async function addBlock(kind: Exclude<NewElement, 'link'>, title = '', note = '', textStyle: TextStyle = 'p') {
+  async function addBlock(kind: Exclude<NewElement, 'link'>, title = '', note = '', textStyle: TextStyle = 'p', displaySize: ElementSize = 'S') {
     const res = await fetch('/api/items', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ block: { kind, title, note, textStyle }, collectionId: targetCollection() }),
+      body: JSON.stringify({ block: { kind, title, note, textStyle, displaySize }, collectionId: targetCollection() }),
     });
     if (!res.ok) return say('Блок не создался');
     const item: Item = await res.json();
@@ -219,8 +223,8 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     window.addEventListener('pointerup', up, { once: true });
   }
 
-  function resizeSelected(size: CardSize) {
-    const ids = [...selected];
+  function resizeSelected(size: ElementSize) {
+    const ids = [...selected].filter((id) => items.some((item) => item.id === id && isBlock(item)));
     setItems((p) => p.map((item) => ids.includes(item.id) ? { ...item, display_size: size } : item));
     ids.forEach((id) => fetch(`/api/items/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displaySize: size }) }));
   }
@@ -538,7 +542,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
         <div className="scroll" onPointerDown={startSelection}>
           <div ref={gridRef} className="grid">
             {visible.map((it) => (
-              <div key={it.id} className={`grid-item size-${(it.display_size || 'M').toLowerCase()}`} data-card-id={it.id}>
+              <div key={it.id} className={`grid-item ${isBlock(it) ? `element-item element-size-${elementSize(it.display_size).toLowerCase()}` : 'pin-item'}`} data-card-id={it.id}>
                 <div className="grid-item-content"><Card item={it} /></div>
               </div>
             ))}
@@ -559,9 +563,13 @@ export default function Wall({ initialCollections, initialItems }: Props) {
       {!!selected.size && <div className="selection-bar">
         <b>{selected.size}</b><span>выбрано</span>
         <i />
-        <span>Размер</span>
-        {(['XS', 'S', 'M', 'L', 'XL'] as CardSize[]).map((size) => <button key={size} onClick={() => resizeSelected(size)}>{size}</button>)}
-        <i />
+        {[...selected].some((id) => items.some((item) => item.id === id && isBlock(item))) && <>
+          <span>Размер элементов</span>
+          <select aria-label="Размер выбранных элементов" defaultValue="S" onChange={(e) => resizeSelected(e.target.value as ElementSize)}>
+            <option value="S">S</option><option value="M">M</option><option value="L">L</option>
+          </select>
+          <i />
+        </>}
         <select aria-label="Переместить выбранные" defaultValue="" onChange={(e) => moveSelected(e.target.value)}>
           <option value="" disabled>В коллекцию...</option>
           <option value="__none__">Без коллекции</option>
@@ -616,7 +624,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const boxRef = useRef<HTMLDivElement>(null);
 
     const isMedia = item.kind === 'image' || item.kind === 'video';
-    const size = item.display_size || 'M';
+    const size = elementSize(item.display_size);
     return (
       <div
         className={'card' + (selected.has(item.id) ? ' selected' : '')}
@@ -697,7 +705,9 @@ export default function Wall({ initialCollections, initialItems }: Props) {
 
         <div className="tools">
           {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); analyzeImage(item, true); }}>{aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
-          <button className="size-tool" aria-label="Изменить размер" title="Изменить размер" onClick={(e) => { e.stopPropagation(); const sizes: CardSize[] = ['XS', 'S', 'M', 'L', 'XL']; patch(item.id, { displaySize: sizes[(sizes.indexOf(size) + 1) % sizes.length] }); }}>{size}</button>
+          {isBlock(item) && <select className="size-select" aria-label="Размер элемента" title="Размер элемента" value={size} onClick={(e) => e.stopPropagation()} onChange={(e) => patch(item.id, { displaySize: e.target.value as ElementSize })}>
+            <option value="S">S</option><option value="M">M</option><option value="L">L</option>
+          </select>}
           {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
           <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); setEditing(item); }}>✎</button>
           <button className="del" aria-label="Удалить карточку" onClick={(e) => { e.stopPropagation(); remove(item); }}>×</button>
@@ -728,11 +738,12 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const [value, setValue] = useState('');
     const [icon, setIcon] = useState('💡');
     const [textStyle, setTextStyle] = useState<TextStyle>('p');
+    const [size, setSize] = useState<ElementSize>('S');
     const names: Record<NewElement, string> = { link: 'Ссылка / Embed', text: 'Текст', callout: 'Callout', html: 'HTML' };
     const submit = () => {
       if (!value.trim()) return;
       if (kind === 'link') { addLink(value.trim()); setNewElement(null); return; }
-      addBlock(kind, kind === 'callout' ? icon : '', value, kind === 'text' ? textStyle : 'p');
+      addBlock(kind, kind === 'callout' ? icon : '', value, kind === 'text' ? textStyle : 'p', size);
     };
     return (
       <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setNewElement(null); }}>
@@ -742,6 +753,9 @@ export default function Wall({ initialCollections, initialItems }: Props) {
           {kind === 'text' && <div className="field"><label>Стиль текста</label><div className="text-style-picker">
             {(['p', 'h1', 'h2', 'h3', 'h4', 'h5'] as TextStyle[]).map((style) => <button key={style} className={textStyle === style ? 'on' : ''} onClick={() => setTextStyle(style)}>{style === 'p' ? 'Текст' : style.toUpperCase()}</button>)}
           </div></div>}
+          {kind !== 'link' && <div className="field"><label>Размер элемента</label><select value={size} onChange={(e) => setSize(e.target.value as ElementSize)}>
+            <option value="S">S — одна колонка</option><option value="M">M — две колонки</option><option value="L">L — три колонки</option>
+          </select></div>}
           <div className="field"><label>{kind === 'link' ? 'URL' : kind === 'html' ? 'Код' : 'Содержание'}</label>
             {kind === 'link' ? <input value={value} autoFocus placeholder="https://…" onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
               : <textarea value={value} autoFocus rows={kind === 'html' ? 10 : 5} placeholder={kind === 'html' ? '<div>…</div>' : 'Начни писать…'} onChange={(e) => setValue(e.target.value)} />}
@@ -802,7 +816,7 @@ export default function Wall({ initialCollections, initialItems }: Props) {
     const [t, setT] = useState(item.title || '');
     const [n, setN] = useState(item.note || '');
     const [c, setC] = useState(item.collection_id || '');
-    const [size, setSize] = useState<CardSize>(item.display_size || 'M');
+    const [size, setSize] = useState<ElementSize>(elementSize(item.display_size));
     const [textStyle, setTextStyle] = useState<TextStyle>(item.text_style || 'p');
 
     return (
@@ -818,15 +832,15 @@ export default function Wall({ initialCollections, initialItems }: Props) {
               <option value="">— без коллекции —</option>
               {collections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select></div>
-          <div className="field"><label>Размер карточки</label><div className="text-style-picker">
-            {(['XS', 'S', 'M', 'L', 'XL'] as CardSize[]).map((value) => <button key={value} className={size === value ? 'on' : ''} onClick={() => setSize(value)}>{value}</button>)}
-          </div></div>
+          {isBlock(item) && <div className="field"><label>Размер элемента</label><select value={size} onChange={(e) => setSize(e.target.value as ElementSize)}>
+            <option value="S">S — одна колонка</option><option value="M">M — две колонки</option><option value="L">L — три колонки</option>
+          </select></div>}
           {item.kind === 'text' && <div className="field"><label>Стиль текста</label><div className="text-style-picker">
             {(['p', 'h1', 'h2', 'h3', 'h4', 'h5'] as TextStyle[]).map((value) => <button key={value} className={textStyle === value ? 'on' : ''} onClick={() => setTextStyle(value)}>{value === 'p' ? 'Текст' : value.toUpperCase()}</button>)}
           </div></div>}
           <div className="modal-foot">
             <button className="btn ghost" onClick={() => setEditing(null)}>Отмена</button>
-            <button className="btn" onClick={() => { patch(item.id, { title: t, note: n, collectionId: c || null, displaySize: size, textStyle }); setEditing(null); }}>Сохранить</button>
+            <button className="btn" onClick={() => { patch(item.id, { title: t, note: n, collectionId: c || null, ...(isBlock(item) ? { displaySize: size } : {}), textStyle }); setEditing(null); }}>Сохранить</button>
           </div>
         </div>
       </div>

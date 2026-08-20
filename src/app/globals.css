@@ -126,13 +126,24 @@ button{cursor:pointer;border:none;background:none;padding:0}
 
 /* ---------- grid ---------- */
 .scroll{flex:1;overflow-y:auto;padding:22px 24px 120px;scroll-behavior:smooth}
-.grid{display:block;position:relative;width:calc(100% + 14px);min-height:1px;margin:0 -7px}
-.grid-item{display:block;position:absolute;z-index:1;padding:0 7px 14px;box-sizing:border-box}
-.grid-item.size-xs{width:16.666666%}
-.grid-item.size-s{width:25%}
-.grid-item.size-m{width:33.333333%}
-.grid-item.size-l{width:50%}
-.grid-item.size-xl{width:66.666666%}
+.grid{display:block;position:relative;width:calc(100% + 14px);min-height:1px;margin:0 -7px;container-type:inline-size}
+.grid-item{display:block;position:absolute;z-index:1;width:50%;padding:0 7px 14px;box-sizing:border-box}
+.grid-item.element-size-m,.grid-item.element-size-l{width:100%}
+@container (min-width:520px){
+  .grid-item{width:33.333333%}.grid-item.element-size-m{width:66.666666%}.grid-item.element-size-l{width:100%}
+}
+@container (min-width:760px){
+  .grid-item{width:25%}.grid-item.element-size-m{width:50%}.grid-item.element-size-l{width:75%}
+}
+@container (min-width:1000px){
+  .grid-item{width:20%}.grid-item.element-size-m{width:40%}.grid-item.element-size-l{width:60%}
+}
+@container (min-width:1280px){
+  .grid-item{width:16.666667%}.grid-item.element-size-m{width:33.333333%}.grid-item.element-size-l{width:50%}
+}
+@container (min-width:1540px){
+  .grid-item{width:14.285714%}.grid-item.element-size-m{width:28.571429%}.grid-item.element-size-l{width:42.857143%}
+}
 .grid-item-content{position:relative;width:100%}
 .card{
   position:relative;width:100%;margin:0;background:var(--panel);
@@ -194,7 +205,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 }
 .tools button:hover{background:#fff;transform:translateY(-1px)}
 .tools .ai-tool{width:34px;font-family:var(--font-mono),monospace;font-size:9px;font-weight:700;letter-spacing:.03em}
-.tools .size-tool{width:34px;font-family:var(--font-mono),monospace;font-size:9px;font-weight:700}
+.tools .size-select{width:42px;height:28px;padding:0 4px;border:0;border-radius:8px;background:rgba(255,255,255,.94);font-family:var(--font-mono),monospace;font-size:9px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.16)}
 .tools button:disabled{opacity:.55;cursor:wait}
 .tools button.del:hover{background:var(--danger);color:#fff}
 .star{
@@ -340,19 +351,10 @@ button{cursor:pointer;border:none;background:none;padding:0}
   .menu-btn{display:inline-flex}
   .title-wrap{flex:1}
   .scroll{padding:14px 14px 90px}
-  .grid-item.size-xs{width:33.333333%}
-  .grid-item.size-s{width:50%}
-  .grid-item.size-m{width:66.666666%}
-  .grid-item.size-l,.grid-item.size-xl{width:100%}
   .element-menu{position:fixed;left:14px;right:14px;top:70px;width:auto;max-height:calc(100vh - 90px);overflow:auto}
   .ai-mode-button{font-size:0;gap:0}
   .ai-mode-menu{position:fixed;left:14px;right:14px;top:70px;width:auto}
   .selection-bar{left:50%;max-width:calc(100vw - 20px);overflow-x:auto}
-}
-@media (max-width:520px){
-  .grid-item.size-xs{width:50%}
-  .grid-item.size-s{width:75%}
-  .grid-item.size-m,.grid-item.size-l,.grid-item.size-xl{width:100%}
 }
 @media (hover:none){
   .tools,.star,.grip{opacity:1}
