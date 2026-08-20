@@ -70,6 +70,12 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const coverRef = useRef<HTMLInputElement>(null);
   const topSearchRef = useRef<HTMLDivElement>(null);
   const dragResetTimer = useRef<number | null>(null);
+  // The window "drop" listener is registered once (see the mount-only
+  // effect below) so it doesn't thrash on every render — but that means
+  // its closure would otherwise forever call the addFiles from the FIRST
+  // render, frozen with whichever project was active on page load. A ref
+  // synced every render lets it always reach the current addFiles instead.
+  const addFilesRef = useRef<(files: File[]) => void>(() => {});
   const selectionBoxRef = useRef<HTMLDivElement>(null);
   const selectionIdsRef = useRef<Set<string>>(new Set());
   const gridRef = useRef<HTMLDivElement>(null);
@@ -755,6 +761,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     if (succeeded) say(`${succeeded} ${succeeded === 1 ? 'файл добавлен' : 'файла добавлено'}`);
   }
 
+  useEffect(() => { addFilesRef.current = addFiles; });
+
   async function patch(id: string, data: Partial<Record<string, unknown>>) {
     setItems((p) => p.map((i) => (i.id === id ? ({ ...i, ...camelToSnake(data) } as Item) : i)));
     await fetch(`/api/items/${id}`, {
@@ -991,7 +999,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       reset();
       if (!files.length) return;
       e.preventDefault();
-      return addFiles(files);
+      return addFilesRef.current(files);
     };
     const preventNativeImageDrag = (e: DragEvent) => {
       if ((e.target as HTMLElement | null)?.closest('img')) e.preventDefault();
@@ -1178,7 +1186,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         <header className="topbar">
           <button className="btn ghost menu-btn" aria-label="Открыть коллекции" onClick={() => setMenuOpen((v) => !v)}>☰</button>
           <div className="title-wrap">
-            {!projectRootView && <><h1>{title}</h1><p>{selectedTag ? `#${selectedTag} · ` : ''}{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p></>}
+            {projectRootView
+              ? <button className="topbar-back" onClick={() => { setActiveProject('all'); setActive('all'); }}><Icon name="back" /> Все проекты</button>
+              : <><h1>{title}</h1><p>{selectedTag ? `#${selectedTag} · ` : ''}{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p></>}
           </div>
           {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
           <div ref={topSearchRef} className={'top-search' + (searchOpen ? ' open' : '')}>{searchOpen && <input autoFocus value={search} placeholder="Поиск" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />}<button className="icon-control" aria-label="Поиск" title="Поиск" onClick={() => { if (searchOpen && search) setSearch(''); else setSearchOpen((value) => !value); }}><Icon name={searchOpen && search ? 'close' : 'search'} /></button></div>
@@ -1187,6 +1197,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             onClick={() => setMoveMode((value) => !value)}><Icon name={moveMode ? 'check' : 'move'} /></button>
           <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'} disabled={progress?.aiCredits === 0}
             aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} title={progress?.aiCredits === 0 ? 'Кредиты закончились' : undefined} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span><small className="ai-credit-tooltip">Осталось {progress?.aiCredits ?? '…'} кредитов</small></button>
+          {progress?.aiCredits === 0 && <button className="btn ghost credits-topup" title="Начислить 100 AI-кредитов" onClick={() => void topUpCredits()}>+100 кредитов</button>}
           <div className="add-element">
             {!!aiRunning.length && <span className="ai-status" aria-label="ИИ анализирует" title="ИИ анализирует"><i /></span>}
             <button className="btn lime" aria-expanded={elementMenu} onClick={() => setElementMenu((v) => !v)}>＋ Элемент</button>
