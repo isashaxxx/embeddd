@@ -1,5 +1,11 @@
 import type { Metadata, Viewport } from 'next';
+import { Geist } from 'next/font/google';
 import './globals.css';
+
+const geist = Geist({
+  subsets: ['latin'],
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'embeddd',
@@ -23,7 +29,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru">
       {mediaOrigin && <head><link rel="preconnect" href={mediaOrigin} crossOrigin="anonymous" /></head>}
-      <body>{children}</body>
+      <body
+        className={geist.className}
+        style={{ letterSpacing: '-0.005em' }}
+      >
+        {children}
+      </body>
     </html>
   );
 }
