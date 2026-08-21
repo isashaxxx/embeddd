@@ -17,7 +17,7 @@ type Props = { initialProjects: Project[]; initialCollections: Collection[]; ini
 type Active = 'all' | 'fav' | string;
 type NewElement = 'link' | 'text' | 'callout' | 'html' | 'widget_calendar' | 'widget_weather';
 type WidgetKind = 'widget_calendar' | 'widget_weather';
-type ElementSize = 'S' | 'M' | 'L';
+type ElementSize = 'S' | 'M' | 'L' | 'XL';
 type TextStyle = Item['text_style'];
 type AiSuggestion = { title: string; description: string; collections: string[]; tags: string[] };
 type AiMode = 'auto' | 'off';
@@ -34,7 +34,41 @@ function parseWidgetSettings(note: string | null | undefined): WidgetSettings {
     return { theme: 'dark', accent: WIDGET_ACCENTS[0] };
   }
 }
-const elementSize = (size: Item['display_size']): ElementSize => size === 'M' ? 'M' : size === 'L' || size === 'XL' ? 'L' : 'S';
+const elementSize = (size: Item['display_size']): ElementSize => size === 'M' ? 'M' : size === 'L' ? 'L' : size === 'XL' ? 'XL' : 'S';
+const SIZE_PRESETS: { value: ElementSize; label: string; subtitle: string; cols: number }[] = [
+  { value: 'S', label: 'Компактный', subtitle: '1 колонка · плотная лента', cols: 1 },
+  { value: 'M', label: 'Средний', subtitle: '2 колонки · базовая раскладка', cols: 2 },
+  { value: 'L', label: 'Широкий', subtitle: '3 колонки · развёрнутый вид', cols: 3 },
+  { value: 'XL', label: 'Во всю ширину', subtitle: 'Растягивается на всю ленту', cols: 4 },
+];
+
+function SizePickerModal({ value, onChange, onConfirm, onClose }: { value: ElementSize; onChange: (size: ElementSize) => void; onConfirm: () => void; onClose: () => void }) {
+  const [tab, setTab] = useState<'components' | 'ai'>('components');
+  return (
+    <div className="overlay on size-picker-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="size-picker-modal">
+        <div className="size-picker-tabs">
+          <button className={tab === 'components' ? 'on' : ''} onClick={() => setTab('components')}>Компоненты</button>
+          <button className={tab === 'ai' ? 'on' : ''} onClick={() => setTab('ai')}>AI Промт <i>PRO</i></button>
+        </div>
+        {tab === 'components' ? (
+          <div className="size-picker-grid">
+            {SIZE_PRESETS.map((preset) => (
+              <button key={preset.value} className={'size-preset' + (value === preset.value ? ' on' : '')} onClick={() => onChange(preset.value)}>
+                <span className="size-preset-preview">{Array.from({ length: preset.cols }).map((_, i) => <b key={i} />)}</span>
+                <strong>{preset.label}</strong>
+                <small>{preset.subtitle}</small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="size-picker-pro">AI-раскладка по промпту — скоро.</div>
+        )}
+        <button className="size-picker-confirm" onClick={onConfirm}>Готово</button>
+      </div>
+    </div>
+  );
+}
 const pinCrop = (item: Item) => {
   const numericPosition = Number(item.position);
   const fallback = [...item.id].reduce((sum, char) => sum + char.charCodeAt(0), 0);
@@ -50,6 +84,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [locationReady, setLocationReady] = useState(initialActive !== 'all' || initialProject !== 'all' || !!initialPost);
   const [editing, setEditing] = useState<Item | null>(null);
   const [disposing, setDisposing] = useState<Item | null>(null);
+  const [sizePicker, setSizePicker] = useState<Item | null>(null);
+  const [bulkSizeOpen, setBulkSizeOpen] = useState(false);
+  const [bulkSize, setBulkSize] = useState<ElementSize>('S');
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
   const [projectModal, setProjectModal] = useState<Project | 'new' | null>(null);
   const [activeProject, setActiveProject] = useState<string>(initialProject);
@@ -79,6 +116,20 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   );
   const [aiRunning, setAiRunning] = useState<string[]>([]);
   const [aiMode, setAiMode] = useState<AiMode>('auto');
+  const [aiCardPercent, setAiCardPercent] = useState(0);
+  const [aiCardShow, setAiCardShow] = useState(false);
+  const aiActive = aiRunning.length > 0;
+  useEffect(() => {
+    if (aiActive) {
+      setAiCardShow(true);
+      setAiCardPercent((p) => (p > 0 ? p : 8));
+      const id = setInterval(() => setAiCardPercent((p) => (p < 90 ? Math.min(90, p + (90 - p) * 0.15 + 1) : p)), 260);
+      return () => clearInterval(id);
+    }
+    setAiCardPercent((p) => (p > 0 ? 100 : 0));
+    const hide = setTimeout(() => setAiCardShow(false), 900);
+    return () => clearTimeout(hide);
+  }, [aiActive]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [gridMetrics, setGridMetrics] = useState({ width: 0, columns: 2 });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1058,8 +1109,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   const title = active === 'all' ? (activeProject === 'all' ? 'Всё' : projects.find((project) => project.id === activeProject)?.name || 'Всё') : active === 'fav' ? 'Избранное' : collections.find((c) => c.id === active)?.name ?? 'Всё';
 
-  const cardRuntime = useRef({ selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, moveMode });
-  cardRuntime.current = { selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, moveMode };
+  const cardRuntime = useRef({ selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, setSizePicker, moveMode });
+  cardRuntime.current = { selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, setSizePicker, moveMode };
 
   // Keep the component type stable across Wall renders. Defining a regular
   // nested component here caused React to remount every video whenever account,
@@ -1159,9 +1210,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
         <div className="tools">
           {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={runtime.aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); runtime.analyzeImage(item, true); }}>{runtime.aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
-          {isBlock(item) && <select className="size-select" aria-label="Размер элемента" title="Размер элемента" value={size} onClick={(e) => e.stopPropagation()} onChange={(e) => runtime.patch(item.id, { displaySize: e.target.value as ElementSize })}>
-            <option value="S">S</option><option value="M">M</option><option value="L">L</option>
-          </select>}
+          {isBlock(item) && <button className="size-tool" aria-label="Размер элемента" title="Размер элемента" onClick={(e) => { e.stopPropagation(); runtime.setSizePicker(item); }}>{size}</button>}
           {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
           <button aria-label="Редактировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setEditing(item); }}><Icon name="edit" /></button>
           {item.archived_at ? <button aria-label="Восстановить карточку" title="Восстановить" onClick={(e) => { e.stopPropagation(); void runtime.restoreItem(item); }}><Icon name="restore" /></button> : <button className="del" aria-label="Удалить или архивировать карточку" onClick={(e) => { e.stopPropagation(); runtime.setDisposing(item); }}><Icon name="trash" /></button>}
@@ -1220,9 +1269,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <BoardDropZone id="unassigned"><SortableContext items={unassignedBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}>{unassignedBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</SortableContext></BoardDropZone>
             <DragOverlay dropAnimation={{ duration: 160, easing: 'ease-out' }}>{draggingBoard ? <BoardRowVisual board={collections.find((board) => board.id === draggingBoard)!} count={countOf(draggingBoard)} overlay /> : null}</DragOverlay>
             </DndContext>
-            <NavRow id="all" name="Всё" count={countOf('all')} />
-            <NavRow id="fav" name="Избранное" count={countOf('fav')} />
-            <NavRow id="archive" name="Архив" count={countOf('archive')} />
+            <NavRow id="all" name="Всё" count={countOf('all')} icon="home" />
+            <NavRow id="fav" name="Избранное" count={countOf('fav')} icon="favorite" />
+            <NavRow id="archive" name="Архив" count={countOf('archive')} icon="archive" />
           </>}
         </div>
       </aside>
@@ -1255,7 +1304,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} title={progress?.aiCredits === 0 ? 'Кредиты закончились' : undefined} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span><small className="ai-credit-tooltip">Осталось {progress?.aiCredits ?? '…'} кредитов</small></button>
           {progress?.aiCredits === 0 && <button className="btn ghost credits-topup" title="Начислить 100 AI-кредитов" onClick={() => void topUpCredits()}>+100 кредитов</button>}
           <div className="add-element">
-            {!!aiRunning.length && <span className="ai-status" aria-label="ИИ анализирует" title="ИИ анализирует"><i /></span>}
             <button className="btn lime" aria-expanded={elementMenu} onClick={() => setElementMenu((v) => !v)}>＋ Элемент</button>
             {elementMenu && <>
               <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setElementMenu(false)} />
@@ -1370,7 +1418,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               </div>;
               }
               const it = entry.value;
-              const blockSpan = isBlock(it) ? elementSize(it.display_size) === 'L' ? 3 : elementSize(it.display_size) === 'M' ? 2 : 1 : 1;
+              const blockSpan = isBlock(it) ? elementSize(it.display_size) === 'XL' ? gridMetrics.columns : elementSize(it.display_size) === 'L' ? 3 : elementSize(it.display_size) === 'M' ? 2 : 1 : 1;
               const span = Math.min(blockSpan, gridMetrics.columns);
               const itemWidth = gridMetrics.width ? gridMetrics.width * span / gridMetrics.columns : 0;
               return <div key={it.id} className={`grid-item ${isBlock(it) ? `element-item element-size-${elementSize(it.display_size).toLowerCase()}` : 'pin-item'}`} data-card-id={it.id} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
@@ -1395,10 +1443,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         <b>{selected.size}</b><span>выбрано</span>
         <i />
         {[...selected].some((id) => items.some((item) => item.id === id && isBlock(item))) && <>
-          <span>Размер элементов</span>
-          <select aria-label="Размер выбранных элементов" defaultValue="S" onChange={(e) => resizeSelected(e.target.value as ElementSize)}>
-            <option value="S">S</option><option value="M">M</option><option value="L">L</option>
-          </select>
+          <button className="size-tool" aria-label="Размер выбранных элементов" title="Размер выбранных элементов" onClick={() => setBulkSizeOpen(true)}>Размер</button>
           <i />
         </>}
         <select aria-label="Переместить выбранные" defaultValue="" onChange={(e) => moveSelected(e.target.value)}>
@@ -1412,6 +1457,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       </div>}
 
       {editing && <EditModal item={editing} />}
+      {sizePicker && <SizePickerModal value={elementSize(sizePicker.display_size)} onChange={(v) => patch(sizePicker.id, { displaySize: v })} onConfirm={() => setSizePicker(null)} onClose={() => setSizePicker(null)} />}
+      {bulkSizeOpen && <SizePickerModal value={bulkSize} onChange={setBulkSize} onConfirm={() => { resizeSelected(bulkSize); setBulkSizeOpen(false); }} onClose={() => setBulkSizeOpen(false)} />}
       {disposing && <div className="overlay on" onClick={(event) => { if (event.target === event.currentTarget) setDisposing(null); }}><div className="modal dispose-modal"><h3>Что сделать с карточкой?</h3><p>В архиве она будет храниться 30 дней, затем удалится окончательно.</p><div className="dispose-actions"><button onClick={() => archiveItem(disposing)}><Icon name="archive" /><span><b>Архивировать</b><small>Можно восстановить в течение 30 дней</small></span></button><button className="danger" onClick={() => { const item = disposing; setDisposing(null); void remove(item); }}><Icon name="trash" /><span><b>Удалить навсегда</b><small>Файл сразу удалится из хранилища</small></span></button></div><div className="modal-foot"><button className="btn ghost" onClick={() => setDisposing(null)}>Отмена</button></div></div></div>}
       {collModal && <CollModal />}
       {projectModal && <ProjectModal />}
@@ -1426,6 +1473,21 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         </div>
       )}
 
+      {aiCardShow && (
+        <div className="ai-progress-card" role="status" aria-live="polite">
+          <span className="ai-progress-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3c.5 3.4 2.4 5.3 5.8 5.8-3.4.5-5.3 2.4-5.8 5.8-.5-3.4-2.4-5.3-5.8-5.8C9.6 8.3 11.5 6.4 12 3Z" /></svg></span>
+          <div className="ai-progress-body">
+            <div className="ai-progress-head">
+              <b>{aiActive ? `Анализирую${aiRunning.length > 1 ? ` (${aiRunning.length})` : ''}…` : 'Готово'}</b>
+              <span>{Math.round(aiCardPercent)}%</span>
+            </div>
+            <div className="ai-progress-bar">
+              {Array.from({ length: 14 }).map((_, i) => <i key={i} className={i < Math.round((aiCardPercent / 100) * 14) ? 'on' : ''} />)}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={'toast' + (toast ? ' on' : '')}>
         <span>{toast?.msg}</span>
         {toast?.undo && <button onClick={() => { toast.undo!(); setToast(null); }}>Вернуть</button>}
@@ -1435,7 +1497,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   /* ---------------- вложенные компоненты ---------------- */
 
-  function NavRow({ id, name, color, count, coll, compact = false, onAdd, addLabel }: { id: Active; name: string; color?: string; count: number; coll?: Collection; compact?: boolean; onAdd?: () => void; addLabel?: string }) {
+  function NavRow({ id, name, color, count, coll, compact = false, onAdd, addLabel, icon }: { id: Active; name: string; color?: string; count: number; coll?: Collection; compact?: boolean; onAdd?: () => void; addLabel?: string; icon?: 'home' | 'favorite' | 'archive' }) {
     return (
       <div
         data-collection-drop={id}
@@ -1446,7 +1508,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           setActive(id); setMenuOpen(false);
         }}
       >
-        <span className="coll-dot" style={color ? { background: color } : undefined} />
+        {icon ? <Icon name={icon} className="coll-icon" /> : <span className="coll-dot" style={color ? { background: color } : undefined} />}
         <span className="coll-name">{name}</span>
         {onAdd && <button className="coll-edit" aria-label={addLabel || 'Добавить'} onClick={(e) => { e.stopPropagation(); onAdd(); }}><Icon name="plus" /></button>}
         {coll && <button className="coll-edit" onClick={() => setCollModal(coll)}>⋯</button>}
@@ -1460,6 +1522,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const [icon, setIcon] = useState('💡');
     const [textStyle, setTextStyle] = useState<TextStyle>('p');
     const [size, setSize] = useState<ElementSize>('S');
+    const [pickingSize, setPickingSize] = useState(false);
     const names: Record<Exclude<NewElement, WidgetKind>, string> = { link: 'Ссылка / Embed', text: 'Текст', callout: 'Callout', html: 'HTML' };
     const submit = () => {
       if (!value.trim()) return;
@@ -1474,15 +1537,14 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           {kind === 'text' && <div className="field"><label>Стиль текста</label><div className="text-style-picker">
             {(['p', 'h1', 'h2', 'h3', 'h4', 'h5'] as TextStyle[]).map((style) => <button key={style} className={textStyle === style ? 'on' : ''} onClick={() => setTextStyle(style)}>{style === 'p' ? 'Текст' : style.toUpperCase()}</button>)}
           </div></div>}
-          {kind !== 'link' && <div className="field"><label>Размер элемента</label><select value={size} onChange={(e) => setSize(e.target.value as ElementSize)}>
-            <option value="S">S — одна колонка</option><option value="M">M — две колонки</option><option value="L">L — три колонки</option>
-          </select></div>}
+          {kind !== 'link' && <div className="field"><label>Размер элемента</label><button type="button" className="size-field-trigger" onClick={() => setPickingSize(true)}><b>{size}</b><span>{SIZE_PRESETS.find((p) => p.value === size)?.label}</span></button></div>}
           <div className="field"><label>{kind === 'link' ? 'URL' : kind === 'html' ? 'Код' : 'Содержание'}</label>
             {kind === 'link' ? <input value={value} autoFocus placeholder="https://…" onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
               : <textarea value={value} autoFocus rows={kind === 'html' ? 10 : 5} placeholder={kind === 'html' ? '<div>…</div>' : 'Начни писать…'} onChange={(e) => setValue(e.target.value)} />}
           </div>
           <div className="modal-foot"><button className="btn ghost" onClick={() => setNewElement(null)}>Отмена</button><button className="btn" onClick={submit}>Добавить</button></div>
         </div>
+        {pickingSize && <SizePickerModal value={size} onChange={setSize} onConfirm={() => setPickingSize(false)} onClose={() => setPickingSize(false)} />}
       </div>
     );
   }
@@ -1537,6 +1599,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const [n, setN] = useState(item.note || '');
     const [c, setC] = useState(item.collection_id || '');
     const [size, setSize] = useState<ElementSize>(elementSize(item.display_size));
+    const [pickingSize, setPickingSize] = useState(false);
     const [textStyle, setTextStyle] = useState<TextStyle>(item.text_style || 'p');
     const [tags, setTags] = useState((item.tags || []).join(', '));
     const initialWidget = parseWidgetSettings(item.note);
@@ -1596,9 +1659,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               {collections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select></div>
           <div className="field"><label>Теги</label><input value={tags} placeholder="дизайн, одежда, минимализм" onChange={(event) => setTags(event.target.value)} /></div>
-          {isBlock(item) && <div className="field"><label>Размер элемента</label><select value={size} onChange={(e) => setSize(e.target.value as ElementSize)}>
-            <option value="S">S — одна колонка</option><option value="M">M — две колонки</option><option value="L">L — три колонки</option>
-          </select></div>}
+          {isBlock(item) && <div className="field"><label>Размер элемента</label><button type="button" className="size-field-trigger" onClick={() => setPickingSize(true)}><b>{size}</b><span>{SIZE_PRESETS.find((p) => p.value === size)?.label}</span></button></div>}
           {item.kind === 'text' && <div className="field"><label>Стиль текста</label><div className="text-style-picker">
             {(['p', 'h1', 'h2', 'h3', 'h4', 'h5'] as TextStyle[]).map((value) => <button key={value} className={textStyle === value ? 'on' : ''} onClick={() => setTextStyle(value)}>{value === 'p' ? 'Текст' : value.toUpperCase()}</button>)}
           </div></div>}
@@ -1607,6 +1668,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <button className="btn" onClick={() => { patch(item.id, { title: t, note: n, tags: tags.split(',').map((tag) => tag.trim().toLocaleLowerCase()).filter(Boolean), collectionId: c || null, ...(isBlock(item) ? { displaySize: size } : {}), textStyle }); setEditing(null); }}>Сохранить</button>
           </div>
         </div>
+        {pickingSize && <SizePickerModal value={size} onChange={setSize} onConfirm={() => setPickingSize(false)} onClose={() => setPickingSize(false)} />}
       </div>
     );
   }
@@ -1761,8 +1823,9 @@ function AutoVideo({ src, className, poster }: { src: string; className: string;
     onMouseEnter={(event) => { void event.currentTarget.play().catch(() => {}); }} onMouseLeave={(event) => event.currentTarget.pause()} />{duration > 0 && <span className="video-duration">{formatDuration(duration)}</span>}</>;
 }
 
-function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' | 'logout' | 'folder' | 'merge' | 'board' }) {
+function Icon({ name, className }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' | 'logout' | 'folder' | 'merge' | 'board' | 'home'; className?: string }) {
   const paths: Record<typeof name, React.ReactNode> = {
+    home: <><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     close: <><path d="M6 6l12 12M18 6 6 18"/></>,
     award: <><circle cx="12" cy="9" r="5"/><path d="m8.5 13-1 8 4.5-2.5L16.5 21l-1-8"/><path d="m10 9 1.3 1.3L14 7.7"/></>,
@@ -1783,7 +1846,7 @@ function Icon({ name }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' |
     merge: <><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M6 8.4V13a4 4 0 0 0 4 4h5.6"/></>,
     board: <><rect x="3" y="3" width="8" height="18" rx="2.2"/><rect x="13" y="3" width="8" height="10" rx="2.2"/></>,
   };
-  return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+  return <svg className={className ? `ui-icon ${className}` : 'ui-icon'} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
 function plural(n: number, a: string, b: string, c: string) {

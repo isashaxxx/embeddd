@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     await sql`
       insert into items (id, slug, collection_id, kind, provider, position, embed_h, title, note, display_size, text_style)
       values (${id}, ${await itemSlug(title || kind)}, ${collectionId}, ${kind}, 'block', ${position}, ${kind === 'html' ? 280 : null}, ${title}, ${note},
-              ${['S', 'M', 'L'].includes(String(body.block.displaySize)) ? String(body.block.displaySize) : 'S'}, ${String(body.block.textStyle || 'p')})`;
+              ${['S', 'M', 'L', 'XL'].includes(String(body.block.displaySize)) ? String(body.block.displaySize) : 'S'}, ${String(body.block.textStyle || 'p')})`;
     return NextResponse.json(await one(id));
   }
 
