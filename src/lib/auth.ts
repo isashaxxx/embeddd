@@ -1,27 +1,33 @@
 import { SignJWT, jwtVerify } from 'jose';
 
-const FALLBACK_SECRET = 'dev-secret-change-me';
-const key = (secret = process.env.AUTH_SECRET || FALLBACK_SECRET) => new TextEncoder().encode(secret);
+const key = (secret: string) => new TextEncoder().encode(secret);
 export const COOKIE = 'embeddd_session';
+
+function authSecret() {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('AUTH_SECRET is required in production');
+    }
+    return 'dev-secret-change-me';
+  }
+  return secret;
+}
 
 export async function sign() {
   return new SignJWT({ ok: true })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('365d')
-    .sign(key());
+    .setExpirationTime('30d')
+    .sign(key(authSecret()));
 }
 
 export async function verify(token?: string) {
   if (!token) return false;
-  const secrets = [...new Set([process.env.AUTH_SECRET || FALLBACK_SECRET, FALLBACK_SECRET])];
-  for (const secret of secrets) {
-    try {
-      await jwtVerify(token, key(secret));
-      return true;
-    } catch {
-      // Try the legacy fallback so adding AUTH_SECRET does not log out existing sessions.
-    }
+  try {
+    await jwtVerify(token, key(authSecret()));
+    return true;
+  } catch {
+    return false;
   }
-  return false;
 }
