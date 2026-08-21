@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from 'next';
-import { Geist } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import './globals.css';
+import './ui-tweaks.css';
 
-const geist = Geist({
-  subsets: ['latin'],
+const inter = Inter({
+  subsets: ['latin', 'cyrillic'],
   display: 'swap',
 });
 
@@ -29,12 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru">
       {mediaOrigin && <head><link rel="preconnect" href={mediaOrigin} crossOrigin="anonymous" /></head>}
-      <body
-        className={geist.className}
-        style={{ letterSpacing: '-0.005em' }}
-      >
-        {children}
-      </body>
+      <body className={inter.className}>{children}</body>
     </html>
   );
 }
