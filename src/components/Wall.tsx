@@ -85,6 +85,10 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [editing, setEditing] = useState<Item | null>(null);
   const [disposing, setDisposing] = useState<Item | null>(null);
   const [sizePicker, setSizePicker] = useState<Item | null>(null);
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  function toggleProjectExpanded(id: string) {
+    setCollapsedProjects((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  }
   const [bulkSizeOpen, setBulkSizeOpen] = useState(false);
   const [bulkSize, setBulkSize] = useState<ElementSize>('S');
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
@@ -248,7 +252,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const unassignedBoards = boardsForProject(null);
   const projectCollectionIds = new Set(projectCollections.map((c) => c.id));
   const visible = items.filter((i) => {
-    const inSection = active === 'archive' ? !!i.archived_at : !i.archived_at && (active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active);
+    const inSection = active === 'archive' ? !!i.archived_at : active === 'projects' ? false : !i.archived_at && (active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active);
     const inProject = activeProject === 'all' || (!!i.collection_id && projectCollectionIds.has(i.collection_id));
     const haystack = `${i.title} ${i.note} ${(i.tags || []).join(' ')}`.toLocaleLowerCase();
     return inSection && inProject && (!selectedTag || i.tags?.includes(selectedTag)) && (!search.trim() || haystack.includes(search.trim().toLocaleLowerCase()));
@@ -256,6 +260,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   const currentProject = activeProject === 'all' ? null : projects.find((project) => project.id === activeProject) || null;
   const projectRootView = activeProject !== 'all' && active === 'all';
+  const projectsGalleryView = active === 'projects';
   const projectItemCount = activeProject === 'all' ? 0 : items.filter((item) => !item.archived_at && item.collection_id && projectCollectionIds.has(item.collection_id)).length;
   const projectCoverThumbs = activeProject === 'all' ? [] : items
     .filter((item) => !item.archived_at && item.collection_id && projectCollectionIds.has(item.collection_id) && (item.thumb || item.src))
@@ -276,13 +281,13 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const countOf = (id: Active) =>
     id === 'all' ? items.filter((i) => !i.archived_at).length : id === 'fav' ? items.filter((i) => i.fav && !i.archived_at).length : id === 'archive' ? items.filter((i) => i.archived_at).length : items.filter((i) => i.collection_id === id && !i.archived_at).length;
 
-  const targetCollection = () => (active === 'all' || active === 'fav' ? null : active);
+  const targetCollection = () => (active === 'all' || active === 'fav' || active === 'projects' ? null : active);
 
-  const gridSignature = [
-    ...feedEntries.map((entry) => entry.type === 'item'
-      ? `${entry.value.id}:${isBlock(entry.value) ? elementSize(entry.value.display_size) : 'pin'}`
-      : `board:${entry.value.id}`),
-  ].join('|');
+  const gridSignature = projectsGalleryView
+    ? projects.map((project) => `project:${project.id}`).join('|')
+    : feedEntries.map((entry) => entry.type === 'item'
+        ? `${entry.value.id}:${isBlock(entry.value) ? elementSize(entry.value.display_size) : 'pin'}`
+        : `board:${entry.value.id}`).join('|');
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -347,7 +352,15 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       });
       muuriRef.current = instance;
 
+      // Пересоздание инстанса Muuri (эффект перезапускается при смене
+      // gridSignature — например когда карточка при drag-and-drop уходит
+      // в другую коллекцию и пропадает из текущей ленты) может произойти,
+      // пока Muuri ещё доигрывает анимацию отпускания карточки. Без этой
+      // проверки его отложенные колбэки трогают уже уничтоженный инстанс
+      // и роняют приложение — поэтому каждый обработчик выходит, если
+      // эффект уже был убран (cancelled).
       instance.on('dragStart', (item) => {
+        if (cancelled) return;
         const element = item.getElement();
         if (element) {
           element.classList.add('is-grabbed');
@@ -355,11 +368,13 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         document.body.classList.add('grid-dragging');
       });
       instance.on('dragMove', (_item, event) => {
+        if (cancelled) return;
         document.querySelectorAll('.coll.drop').forEach((el) => el.classList.remove('drop'));
         const underPointer = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
         underPointer?.closest<HTMLElement>('[data-collection-drop]')?.classList.add('drop');
       });
       instance.on('dragEnd', (item, event) => {
+        if (cancelled) return;
         item.getElement()?.classList.remove('is-grabbed');
         document.body.classList.remove('grid-dragging');
         document.querySelectorAll('.coll.drop').forEach((el) => el.classList.remove('drop'));
@@ -370,6 +385,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         else pendingOrder = instance.getItems().map((entry) => entry.getElement()?.dataset.cardId).filter(Boolean) as string[];
       });
       instance.on('dragReleaseEnd', (item) => {
+        if (cancelled) return;
         const element = item.getElement();
         if (!element) return;
         instance.refreshItems([item]).layout();
@@ -1107,7 +1123,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   /* ---------------- разметка ---------------- */
 
-  const title = active === 'all' ? (activeProject === 'all' ? 'Всё' : projects.find((project) => project.id === activeProject)?.name || 'Всё') : active === 'fav' ? 'Избранное' : collections.find((c) => c.id === active)?.name ?? 'Всё';
+  const title = active === 'all' ? (activeProject === 'all' ? 'Всё' : projects.find((project) => project.id === activeProject)?.name || 'Всё') : active === 'fav' ? 'Избранное' : active === 'projects' ? 'Мои проекты' : collections.find((c) => c.id === active)?.name ?? 'Всё';
 
   const cardRuntime = useRef({ selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, setSizePicker, moveMode });
   cardRuntime.current = { selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, setSizePicker, moveMode };
@@ -1258,11 +1274,13 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <DndContext sensors={boardSensors} collisionDetection={closestCenter} onDragStart={(event) => setDraggingBoard(String(event.active.id))} onDragCancel={() => setDraggingBoard(null)} onDragEnd={(event) => void finishBoardDrag(event)}>
             {!!projects.length && <>
               <div className="nav-label figma-pages"><span>Мои проекты</span><button aria-label="Новый проект" onClick={() => setProjectModal('new')}><Icon name="plus" /></button></div>
-              {projects.map((project) => { const projectBoards = boardsForProject(project.id); return <BoardDropZone key={project.id} id={project.id}>
+              {projects.map((project) => { const projectBoards = boardsForProject(project.id); const expanded = !collapsedProjects.has(project.id); return <BoardDropZone key={project.id} id={project.id}>
                 <button className="project-row project-heading" data-tooltip={project.name} onClick={() => { setActiveProject(project.id); setActive('all'); }}>
-                  <Icon name="folder" /><b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
+                  <Icon name="folder" /><b>{project.name}</b>
+                  <i className={'project-heading-toggle' + (expanded ? '' : ' is-collapsed')} aria-label={expanded ? 'Свернуть проект' : 'Развернуть проект'} onClick={(event) => { event.stopPropagation(); toggleProjectExpanded(project.id); }}><Icon name="chevron" /></i>
+                  <i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
                 </button>
-                <SortableContext items={projectBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}><div className="project-tree-boards">{projectBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</div></SortableContext>
+                {expanded && <SortableContext items={projectBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}><div className="project-tree-boards">{projectBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</div></SortableContext>}
               </BoardDropZone>; })}
             </>}
             <div className="nav-label figma-pages"><span>Мои борды</span><div className="nav-label-actions"><button aria-label="Объединить похожие борды" title="Объединить похожие борды" onClick={() => void autoMergeSimilarBoards()}><Icon name="merge" /></button><button aria-label="Новый борд" onClick={() => setCollModal('new')}><Icon name="plus" /></button></div></div>
@@ -1330,7 +1348,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <div className="account-hover-card">
               <div className="account-hover-card-inner">
                 <div className="account-hover-row">
-                  <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('all'); setMenuOpen(true); }}><Icon name="folder" /> Мои проекты</button>
+                  <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('projects'); setMenuOpen(true); }}><Icon name="folder" /> Мои проекты</button>
                   <button className="account-hover-add" aria-label="Новый проект" title="Новый проект" onClick={(event) => { event.stopPropagation(); setProjectModal('new'); }}><Icon name="plus" /></button>
                 </div>
                 <div className="account-hover-row">
@@ -1390,7 +1408,25 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             </div>
           )}
           <div ref={gridRef} className="grid">
-            {feedEntries.map((entry) => {
+            {projectsGalleryView ? projects.map((project) => {
+              const boardCount = boardsForProject(project.id).length;
+              const boardIds = new Set(boardsForProject(project.id).map((b) => b.id));
+              const covers = items.filter((item) => !item.archived_at && item.collection_id && boardIds.has(item.collection_id) && (item.thumb || item.src)).slice(0, 3);
+              const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
+              return <div key={project.id} className="grid-item collection-board-item" data-card-id={`project-${project.id}`} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
+                <div className="grid-item-content collection-board">
+                  <button className="board-open" aria-label={`Открыть ${project.name}`} onClick={() => { setActiveProject(project.id); setActive('all'); }} />
+                  <span className="board-covers">
+                    {project.cover_url ? <img className="board-cover cover-1" src={project.cover_url} alt="" loading="lazy" />
+                      : covers.length ? covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)
+                      : <span className="board-empty" style={{ background: project.color }} />}
+                  </span>
+                  <strong>{project.name}</strong>
+                  <small>{boardCount} {plural(boardCount, 'борд', 'борда', 'бордов')}</small>
+                  <button className="board-menu" aria-label="Настройки проекта" onClick={() => setProjectModal(project)}>•••</button>
+                </div>
+              </div>;
+            }) : feedEntries.map((entry) => {
               if (entry.type === 'collection') {
                 const collection = entry.value;
               const covers = items.filter((item) => item.collection_id === collection.id && (item.thumb || item.src)).slice(0, 3);
@@ -1426,7 +1462,12 @@ export default function Wall({ initialProjects, initialCollections, initialItems
               </div>
             })}
           </div>
-          {!visible.length && !(active === 'all' && collections.length) && (
+          {projectsGalleryView ? (!projects.length && (
+            <div className="empty">
+              <h2>Пока нет проектов.</h2>
+              <p>Нажми «+» рядом с «Мои проекты» в меню слева, чтобы создать первый.</p>
+            </div>
+          )) : !visible.length && !(active === 'all' && collections.length) && (
             <div className="empty">
               <h2>Пусто. Кидай сюда всё.</h2>
               <p>Нажми «+ Элемент», перетащи файлы в окно или просто вставь ссылку через <kbd>⌘V</kbd>.</p>
@@ -1823,9 +1864,10 @@ function AutoVideo({ src, className, poster }: { src: string; className: string;
     onMouseEnter={(event) => { void event.currentTarget.play().catch(() => {}); }} onMouseLeave={(event) => event.currentTarget.pause()} />{duration > 0 && <span className="video-duration">{formatDuration(duration)}</span>}</>;
 }
 
-function Icon({ name, className }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' | 'logout' | 'folder' | 'merge' | 'board' | 'home'; className?: string }) {
+function Icon({ name, className }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' | 'logout' | 'folder' | 'merge' | 'board' | 'home' | 'chevron'; className?: string }) {
   const paths: Record<typeof name, React.ReactNode> = {
     home: <><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9"/></>,
+    chevron: <path d="m6 9 6 6 6-6"/>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     close: <><path d="M6 6l12 12M18 6 6 18"/></>,
     award: <><circle cx="12" cy="9" r="5"/><path d="m8.5 13-1 8 4.5-2.5L16.5 21l-1-8"/><path d="m10 9 1.3 1.3L14 7.7"/></>,
