@@ -34,6 +34,40 @@ function parseWidgetSettings(note: string | null | undefined): WidgetSettings {
     return { theme: 'dark', accent: WIDGET_ACCENTS[0] };
   }
 }
+type ProjectTemplateBlock = { kind: 'heading' | 'text' | 'callout' | 'divider'; title?: string; note?: string };
+type ProjectTemplate = { id: string; name: string; color: string; blurb: string; blocks: ProjectTemplateBlock[] };
+const PROJECT_TEMPLATES: ProjectTemplate[] = [
+  { id: 'portfolio', name: 'Портфолио', color: '#2B2E33', blurb: 'Личные работы и кейсы', blocks: [
+    { kind: 'heading', note: 'Портфолио' },
+    { kind: 'text', note: 'Подборка последних проектов и кейсов — добавляй фото, видео и ссылки, как на моуборде.' },
+    { kind: 'divider' },
+    { kind: 'callout', title: '💼', note: 'Открыт для сотрудничества — пишите' },
+  ] },
+  { id: 'event', name: 'Ивент', color: '#E8604C', blurb: 'Афиша и программа события', blocks: [
+    { kind: 'heading', note: 'Название события' },
+    { kind: 'text', note: 'Дата · место · формат. Коротко о том, что будет и почему стоит прийти.' },
+    { kind: 'divider' },
+    { kind: 'callout', title: '🎟', note: 'Регистрация по ссылке в описании' },
+  ] },
+  { id: 'launch', name: 'Запуск продукта', color: '#4C6FE7', blurb: 'Презентация нового продукта', blocks: [
+    { kind: 'heading', note: 'Новый продукт' },
+    { kind: 'text', note: 'Расскажи, что запускаешь и в чём главная ценность для пользователя.' },
+    { kind: 'divider' },
+    { kind: 'callout', title: '🚀', note: 'Уже в раннем доступе — присоединяйся' },
+  ] },
+  { id: 'menu', name: 'Меню кафе', color: '#C97A4A', blurb: 'Блюда и напитки заведения', blocks: [
+    { kind: 'heading', note: 'Меню' },
+    { kind: 'text', note: 'Сезонные блюда и напитки. Добавляй фото каждой позиции.' },
+    { kind: 'divider' },
+    { kind: 'callout', title: '☕', note: 'Открыты каждый день с 9:00 до 21:00' },
+  ] },
+  { id: 'brand', name: 'Личный бренд', color: '#4C8C5F', blurb: 'О себе, услуги, контакты', blocks: [
+    { kind: 'heading', note: 'Привет, это я' },
+    { kind: 'text', note: 'Пара слов о себе, чем занимаюсь и что можно у меня заказать.' },
+    { kind: 'divider' },
+    { kind: 'callout', title: '✨', note: 'Пишите в директ — отвечаю быстро' },
+  ] },
+];
 const elementSize = (size: Item['display_size']): ElementSize => size === 'M' ? 'M' : size === 'L' ? 'L' : size === 'XL' ? 'XL' : 'S';
 const SIZE_PRESETS: { value: ElementSize; label: string; subtitle: string; cols: number }[] = [
   { value: 'S', label: 'Компактный', subtitle: '1 колонка · плотная лента', cols: 1 },
@@ -111,6 +145,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [publishMenuOpen, setPublishMenuOpen] = useState(false);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [projectSaveState, setProjectSaveState] = useState<'idle' | 'saving'>('idle');
   const [newElement, setNewElement] = useState<NewElement | null>(null);
   const [contentTab, setContentTab] = useState<'all' | 'boards' | 'items'>('all');
   const boardSensors = useSensors(
@@ -934,16 +971,44 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     setCollModal(null);
   }
 
-  async function saveProject(name: string, color: string, accessMode?: Project['access_mode']) {
+  async function seedTemplateBlocks(boardId: string, template: ProjectTemplate) {
+    const created: Item[] = [];
+    for (const block of template.blocks) {
+      const res = await fetch('/api/items', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ block: { kind: block.kind, title: block.title || '', note: block.note || '', textStyle: 'p', displaySize: 'M' }, collectionId: boardId }),
+      });
+      if (res.ok) created.push(await res.json());
+    }
+    if (created.length) setItems((p) => [...created, ...p]);
+  }
+
+  async function saveProject(name: string, color: string, accessMode?: Project['access_mode'], description?: string, template?: ProjectTemplate) {
     const editingProject = projectModal === 'new' ? null : projectModal;
     const res = await fetch(editingProject ? `/api/projects/${editingProject.id}` : '/api/projects', {
-      method: editingProject ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, color, accessMode }),
+      method: editingProject ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, color, accessMode, description }),
     });
     if (!res.ok) return say('Не удалось сохранить проект');
     const project: Project = await res.json();
     setProjects((current) => editingProject ? current.map((value) => value.id === project.id ? project : value) : [...current, project]);
-    if (!editingProject) setActiveProject(project.id);
+    if (!editingProject) {
+      setActiveProject(project.id);
+      if (template) {
+        const board = await resolveDefaultBoard(project.id);
+        await seedTemplateBlocks(board.id, template);
+      }
+    }
     setProjectModal(null);
+  }
+
+  async function patchProject(id: string, data: Partial<{ name: string; color: string; description: string; accessMode: Project['access_mode'] }>) {
+    setProjects((current) => current.map((p) => p.id === id ? { ...p, ...data } : p));
+    const res = await fetch(`/api/projects/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
+    if (res.ok) {
+      const updated: Project = await res.json();
+      setProjects((current) => current.map((p) => p.id === id ? updated : p));
+    }
   }
 
   async function makeProjectPublic(project: Project) {
@@ -1253,6 +1318,76 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     );
   }).current;
 
+  const gridBody = (
+    <div ref={gridRef} className="grid">
+      {projectsGalleryView ? projects.map((project) => {
+        const boardCount = boardsForProject(project.id).length;
+        const boardIds = new Set(boardsForProject(project.id).map((b) => b.id));
+        const covers = items.filter((item) => !item.archived_at && item.collection_id && boardIds.has(item.collection_id) && (item.thumb || item.src)).slice(0, 3);
+        const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
+        return <div key={project.id} className="grid-item collection-board-item" data-card-id={`project-${project.id}`} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
+          <div className="grid-item-content collection-board">
+            <button className="board-open" aria-label={`Открыть ${project.name}`} onClick={() => { setActiveProject(project.id); setActive('all'); }} />
+            <span className="board-covers">
+              {project.cover_url ? <img className="board-cover cover-1" src={project.cover_url} alt="" loading="lazy" />
+                : covers.length ? covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)
+                : <span className="board-empty" style={{ background: project.color }} />}
+            </span>
+            <strong>{project.name}</strong>
+            <small>{boardCount} {plural(boardCount, 'борд', 'борда', 'бордов')}</small>
+            <button className="board-menu" aria-label="Настройки проекта" onClick={() => setProjectModal(project)}>•••</button>
+          </div>
+        </div>;
+      }) : feedEntries.map((entry) => {
+        if (entry.type === 'collection') {
+          const collection = entry.value;
+        const covers = items.filter((item) => item.collection_id === collection.id && (item.thumb || item.src)).slice(0, 3);
+        const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
+        const boardKey = `board:${collection.id}`;
+        return <div key={`board-${collection.id}`} className="grid-item collection-board-item" data-card-id={boardKey} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
+          <div className={'grid-item-content collection-board' + (selected.has(boardKey) ? ' selected' : '')}>
+            <button className="board-open" aria-label={`Открыть ${collection.name}`} onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || selected.size) {
+                e.stopPropagation();
+                setSelected((current) => { const next = new Set(current); next.has(boardKey) ? next.delete(boardKey) : next.add(boardKey); return next; });
+                return;
+              }
+              setActive(collection.id);
+            }} />
+            <span className="board-covers">
+              {covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)}
+              {!covers.length && <span className="board-empty" style={{ background: collection.color }} />}
+              {collection.access_mode !== 'link' && <span className="board-lock" aria-label="Закрытая коллекция">🔒</span>}
+            </span>
+            <strong>{collection.name}</strong>
+            <small>{countOf(collection.id)} {plural(countOf(collection.id), 'элемент', 'элемента', 'элементов')}</small>
+            <button className="board-menu" aria-label="Редактировать коллекцию" onClick={() => setCollModal(collection)}>•••</button>
+          </div>
+        </div>;
+        }
+        const it = entry.value;
+        const blockSpan = isBlock(it) ? elementSize(it.display_size) === 'XL' ? gridMetrics.columns : elementSize(it.display_size) === 'L' ? 3 : elementSize(it.display_size) === 'M' ? 2 : 1 : 1;
+        const span = Math.min(blockSpan, gridMetrics.columns);
+        const itemWidth = gridMetrics.width ? gridMetrics.width * span / gridMetrics.columns : 0;
+        return <div key={it.id} className={`grid-item ${isBlock(it) ? `element-item element-size-${elementSize(it.display_size).toLowerCase()}` : 'pin-item'}`} data-card-id={it.id} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
+          <div className="grid-item-content"><Card item={it} /></div>
+        </div>
+      })}
+    </div>
+  );
+  const emptyBody = projectsGalleryView ? (!projects.length && (
+    <div className="empty">
+      <h2>Пока нет проектов.</h2>
+      <p>Нажми «+» рядом с «Мои проекты» в меню слева, чтобы создать первый.</p>
+    </div>
+  )) : !visible.length && !(active === 'all' && collections.length) && (
+    <div className="empty">
+      <h2>Пусто. Кидай сюда всё.</h2>
+      <p>Нажми «+ Элемент», перетащи файлы в окно или просто вставь ссылку через <kbd>⌘V</kbd>.</p>
+      <p>Карточки таскаются мышкой — между собой и в коллекции слева.</p>
+    </div>
+  );
+
   return (
     <div className={'app' + (moveMode ? ' move-mode' : '')}>
       <aside className={'sidebar' + (menuOpen ? ' open' : '') + (sidebarCollapsed ? ' collapsed' : '')}>
@@ -1366,114 +1501,60 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         </header>
 
         <div className="scroll" onPointerDown={startSelection}>
-          {projectRootView && currentProject && (
-            <div className="project-hero">
-              <div className="project-hero-info">
-                <h2>{currentProject.name}</h2>
-                <div className="project-hero-meta">
-                  <span>С {new Date(currentProject.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-                  <span>{projectItemCount} {plural(projectItemCount, 'карточка', 'карточки', 'карточек')}</span>
-                  <span>{projectCollections.length} {plural(projectCollections.length, 'борд', 'борда', 'бордов')}</span>
+          {projectRootView && currentProject ? (
+            <div className="project-editor">
+              <div className="project-editor-bar">
+                <div className="project-editor-crumbs">
+                  <button className="project-editor-crumb" onClick={() => { setActiveProject('all'); setActive('projects'); }}>Мои проекты</button>
+                  <span>/</span>
+                  <b>{currentProject.name}</b>
+                  <span className="project-editor-save">{projectSaveState === 'saving' ? 'Сохраняю…' : 'Сохранено'}</span>
                 </div>
-                <div className="project-hero-actions">
-                  <button className="btn ghost project-hero-edit" onClick={() => setProjectModal(currentProject)}>Изменить проект</button>
-                  {currentProject.access_mode === 'link' && currentProject.share_token ? (
-                    <button className="project-hero-share" onClick={() => { navigator.clipboard.writeText(`${location.origin}/${encodeURIComponent(account?.nickname || 'embeddd')}/${currentProject.slug}`); say('Ссылка скопирована'); }}>
-                      Ссылка на проект: <b>{(typeof window !== 'undefined' ? window.location.host : '')}/{account?.nickname || 'embeddd'}/{currentProject.slug}</b>
+                <div className="project-editor-actions">
+                  <div className="project-publish">
+                    <button className={'btn ghost project-publish-btn' + (currentProject.access_mode === 'link' ? ' on' : '')} onClick={() => setPublishMenuOpen((v) => !v)}>
+                      {currentProject.access_mode === 'link' ? 'Опубликовано' : 'Опубликовать'}
                     </button>
-                  ) : (
-                    <button className="btn ghost" onClick={() => void makeProjectPublic(currentProject)}>Сделать публичным</button>
-                  )}
-                </div>
-              </div>
-              <div className="project-hero-cover">
-                {currentProject.cover_url ? <img src={currentProject.cover_url} alt="" /> : projectCoverThumbs.length ? (
-                  <div className={'project-hero-mosaic count-' + projectCoverThumbs.length}>
-                    {projectCoverThumbs.map((item) => <img key={item.id} src={item.thumb || item.src || ''} alt="" />)}
+                    {publishMenuOpen && <>
+                      <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setPublishMenuOpen(false)} />
+                      <div className="publish-menu">
+                        {currentProject.access_mode === 'link' && currentProject.share_token ? (
+                          <>
+                            <div className="publish-menu-link">{(typeof window !== 'undefined' ? window.location.host : '')}/{account?.nickname || 'embeddd'}/{currentProject.slug}</div>
+                            <button onClick={() => { navigator.clipboard.writeText(`${location.origin}/${encodeURIComponent(account?.nickname || 'embeddd')}/${currentProject.slug}`); say('Ссылка скопирована'); setPublishMenuOpen(false); }}>Скопировать ссылку</button>
+                            <button className="danger" onClick={() => { void patchProject(currentProject.id, { accessMode: 'private' }); setPublishMenuOpen(false); }}>Сделать приватным</button>
+                          </>
+                        ) : (
+                          <button onClick={() => { void makeProjectPublic(currentProject); setPublishMenuOpen(false); }}>Опубликовать по ссылке</button>
+                        )}
+                      </div>
+                    </>}
                   </div>
-                ) : <div className="project-hero-cover-empty" />}
-                <div className="project-hero-cover-actions">
-                  <button aria-label="Загрузить обложку" title="Загрузить обложку" onClick={() => coverRef.current?.click()}><Icon name="plus" /></button>
-                  <button aria-label="Настройки проекта" title="Настройки проекта" onClick={() => setProjectModal(currentProject)}><Icon name="edit" /></button>
+                  <div className="project-editor-menu">
+                    <button aria-label="Ещё" title="Ещё" onClick={() => setProjectMenuOpen((v) => !v)}>⋮</button>
+                    {projectMenuOpen && <>
+                      <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setProjectMenuOpen(false)} />
+                      <div className="project-editor-dropdown">
+                        <button className="danger" onClick={() => { setProjectMenuOpen(false); deleteProject(currentProject); }}><Icon name="trash" />Удалить проект</button>
+                      </div>
+                    </>}
+                  </div>
                 </div>
-                <input ref={coverRef} type="file" accept="image/*" hidden onChange={(event) => { void uploadProjectCover(event.target.files?.[0]); event.target.value = ''; }} />
+              </div>
+              <div className="project-editor-body">
+                <div className="project-editor-canvas">
+                  <div className="project-tabs">
+                    <button className={contentTab === 'all' ? 'on' : ''} onClick={() => setContentTab('all')}>Все</button>
+                    <button className={contentTab === 'boards' ? 'on' : ''} onClick={() => setContentTab('boards')}>Борды</button>
+                    <button className={contentTab === 'items' ? 'on' : ''} onClick={() => setContentTab('items')}>Карточки</button>
+                  </div>
+                  {gridBody}
+                  {emptyBody}
+                </div>
+                <ProjectSettingsPanel project={currentProject} />
               </div>
             </div>
-          )}
-          {projectRootView && (
-            <div className="project-tabs">
-              <button className={contentTab === 'all' ? 'on' : ''} onClick={() => setContentTab('all')}>Все</button>
-              <button className={contentTab === 'boards' ? 'on' : ''} onClick={() => setContentTab('boards')}>Борды</button>
-              <button className={contentTab === 'items' ? 'on' : ''} onClick={() => setContentTab('items')}>Карточки</button>
-            </div>
-          )}
-          <div ref={gridRef} className="grid">
-            {projectsGalleryView ? projects.map((project) => {
-              const boardCount = boardsForProject(project.id).length;
-              const boardIds = new Set(boardsForProject(project.id).map((b) => b.id));
-              const covers = items.filter((item) => !item.archived_at && item.collection_id && boardIds.has(item.collection_id) && (item.thumb || item.src)).slice(0, 3);
-              const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
-              return <div key={project.id} className="grid-item collection-board-item" data-card-id={`project-${project.id}`} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
-                <div className="grid-item-content collection-board">
-                  <button className="board-open" aria-label={`Открыть ${project.name}`} onClick={() => { setActiveProject(project.id); setActive('all'); }} />
-                  <span className="board-covers">
-                    {project.cover_url ? <img className="board-cover cover-1" src={project.cover_url} alt="" loading="lazy" />
-                      : covers.length ? covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)
-                      : <span className="board-empty" style={{ background: project.color }} />}
-                  </span>
-                  <strong>{project.name}</strong>
-                  <small>{boardCount} {plural(boardCount, 'борд', 'борда', 'бордов')}</small>
-                  <button className="board-menu" aria-label="Настройки проекта" onClick={() => setProjectModal(project)}>•••</button>
-                </div>
-              </div>;
-            }) : feedEntries.map((entry) => {
-              if (entry.type === 'collection') {
-                const collection = entry.value;
-              const covers = items.filter((item) => item.collection_id === collection.id && (item.thumb || item.src)).slice(0, 3);
-              const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
-              const boardKey = `board:${collection.id}`;
-              return <div key={`board-${collection.id}`} className="grid-item collection-board-item" data-card-id={boardKey} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
-                <div className={'grid-item-content collection-board' + (selected.has(boardKey) ? ' selected' : '')}>
-                  <button className="board-open" aria-label={`Открыть ${collection.name}`} onClick={(e) => {
-                    if (e.metaKey || e.ctrlKey || e.shiftKey || selected.size) {
-                      e.stopPropagation();
-                      setSelected((current) => { const next = new Set(current); next.has(boardKey) ? next.delete(boardKey) : next.add(boardKey); return next; });
-                      return;
-                    }
-                    setActive(collection.id);
-                  }} />
-                  <span className="board-covers">
-                    {covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)}
-                    {!covers.length && <span className="board-empty" style={{ background: collection.color }} />}
-                    {collection.access_mode !== 'link' && <span className="board-lock" aria-label="Закрытая коллекция">🔒</span>}
-                  </span>
-                  <strong>{collection.name}</strong>
-                  <small>{countOf(collection.id)} {plural(countOf(collection.id), 'элемент', 'элемента', 'элементов')}</small>
-                  <button className="board-menu" aria-label="Редактировать коллекцию" onClick={() => setCollModal(collection)}>•••</button>
-                </div>
-              </div>;
-              }
-              const it = entry.value;
-              const blockSpan = isBlock(it) ? elementSize(it.display_size) === 'XL' ? gridMetrics.columns : elementSize(it.display_size) === 'L' ? 3 : elementSize(it.display_size) === 'M' ? 2 : 1 : 1;
-              const span = Math.min(blockSpan, gridMetrics.columns);
-              const itemWidth = gridMetrics.width ? gridMetrics.width * span / gridMetrics.columns : 0;
-              return <div key={it.id} className={`grid-item ${isBlock(it) ? `element-item element-size-${elementSize(it.display_size).toLowerCase()}` : 'pin-item'}`} data-card-id={it.id} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
-                <div className="grid-item-content"><Card item={it} /></div>
-              </div>
-            })}
-          </div>
-          {projectsGalleryView ? (!projects.length && (
-            <div className="empty">
-              <h2>Пока нет проектов.</h2>
-              <p>Нажми «+» рядом с «Мои проекты» в меню слева, чтобы создать первый.</p>
-            </div>
-          )) : !visible.length && !(active === 'all' && collections.length) && (
-            <div className="empty">
-              <h2>Пусто. Кидай сюда всё.</h2>
-              <p>Нажми «+ Элемент», перетащи файлы в окно или просто вставь ссылку через <kbd>⌘V</kbd>.</p>
-              <p>Карточки таскаются мышкой — между собой и в коллекции слева.</p>
-            </div>
-          )}
+          ) : <>{gridBody}{emptyBody}</>}
         </div>
 
         <div className={'dropzone' + (dropping ? ' on' : '')}>Отпусти — положу на стену</div>
@@ -1752,18 +1833,86 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const project = projectModal === 'new' ? null : projectModal;
     const [name, setName] = useState(project?.name || '');
     const [color, setColor] = useState(project?.color || '#C6F04A');
+    const [description, setDescription] = useState(project?.description || '');
     const [access, setAccess] = useState<Project['access_mode']>(project?.access_mode || 'private');
+    const [templateId, setTemplateId] = useState<string | null>(null);
     const publicUrl = project?.share_token ? `${location.origin}/${encodeURIComponent(account?.nickname || 'embeddd')}/${project.slug}` : null;
+    const submit = () => name.trim() && saveProject(name.trim(), color, access, description, templateId ? PROJECT_TEMPLATES.find((t) => t.id === templateId) : undefined);
     return <div className="overlay on" onClick={(event) => { if (event.target === event.currentTarget) setProjectModal(null); }}><div className="modal">
       <h3>{project ? 'Проект' : 'Новый проект'}</h3>
-      <div className="field"><label>Название</label><input autoFocus value={name} placeholder="Клиент / Бренд / Личное" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && name.trim() && saveProject(name.trim(), color, access)} /></div>
+      <div className="field"><label>Название</label><input autoFocus value={name} placeholder="Клиент / Бренд / Личное" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && submit()} /></div>
+      <div className="field"><label>Описание</label><textarea value={description} placeholder="Пара слов о проекте" rows={2} onChange={(event) => setDescription(event.target.value)} /></div>
       <div className="field"><label>Цвет</label><input type="color" value={color} style={{ height: 38, padding: 3 }} onChange={(event) => setColor(event.target.value)} /></div>
+      {!project && <div className="field"><label>Шаблон</label>
+        <div className="template-grid">
+          <button type="button" className={'template-card' + (templateId === null ? ' on' : '')} onClick={() => setTemplateId(null)}>
+            <span className="template-swatch template-swatch-blank" />
+            <b>Пустой</b><small>Начать с чистого борда</small>
+          </button>
+          {PROJECT_TEMPLATES.map((t) => (
+            <button type="button" key={t.id} className={'template-card' + (templateId === t.id ? ' on' : '')} onClick={() => { setTemplateId(t.id); setColor(t.color); }}>
+              <span className="template-swatch" style={{ background: t.color }} />
+              <b>{t.name}</b><small>{t.blurb}</small>
+            </button>
+          ))}
+        </div>
+      </div>}
       {project && <div className="field"><label>Доступ</label><select value={access} onChange={(event) => setAccess(event.target.value as Project['access_mode'])}>
         <option value="private">Только я</option><option value="link">По ссылке — виден всем</option>
       </select></div>}
       {project && publicUrl && access === 'link' && <button className="share-link" onClick={() => { navigator.clipboard.writeText(publicUrl); say('Ссылка скопирована'); }}>Скопировать публичную ссылку</button>}
-      <div className="modal-foot">{project && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteProject(project)}>Удалить</button>}<button className="btn ghost" onClick={() => setProjectModal(null)}>Отмена</button><button className="btn" onClick={() => name.trim() && saveProject(name.trim(), color, access)}>{project ? 'Сохранить' : 'Создать'}</button></div>
+      <div className="modal-foot">{project && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteProject(project)}>Удалить</button>}<button className="btn ghost" onClick={() => setProjectModal(null)}>Отмена</button><button className="btn" onClick={submit}>{project ? 'Сохранить' : 'Создать'}</button></div>
     </div></div>;
+  }
+
+  function ProjectSettingsPanel({ project }: { project: Project }) {
+    const [name, setName] = useState(project.name);
+    const [description, setDescription] = useState(project.description || '');
+    const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => { setName(project.name); setDescription(project.description || ''); }, [project.id]);
+
+    function scheduleSave(data: Partial<{ name: string; description: string }>) {
+      setProjectSaveState('saving');
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => { void patchProject(project.id, data).then(() => setProjectSaveState('idle')); }, 600);
+    }
+
+    return (
+      <aside className="project-settings-panel">
+        <div className="project-settings-label">Общее</div>
+        <div className="project-settings-section">
+          <div className="field"><label>Название проекта</label><input value={name} onChange={(event) => { setName(event.target.value); scheduleSave({ name: event.target.value }); }} /></div>
+          <div className="field"><label>Описание</label><textarea rows={3} value={description} placeholder="Пара слов о проекте" onChange={(event) => { setDescription(event.target.value); scheduleSave({ description: event.target.value }); }} /></div>
+        </div>
+
+        <div className="project-settings-label">Обложка</div>
+        <div className="project-settings-section">
+          <div className="project-settings-cover">
+            {project.cover_url ? <img src={project.cover_url} alt="" /> : projectCoverThumbs.length ? (
+              <div className={'project-hero-mosaic count-' + projectCoverThumbs.length}>
+                {projectCoverThumbs.map((item) => <img key={item.id} src={item.thumb || item.src || ''} alt="" />)}
+              </div>
+            ) : <div className="project-settings-cover-empty" />}
+          </div>
+          <div className="project-settings-cover-actions">
+            <button className="btn ghost" onClick={() => coverRef.current?.click()}>Загрузить</button>
+            <input ref={coverRef} type="file" accept="image/*" hidden onChange={(event) => { void uploadProjectCover(event.target.files?.[0]); event.target.value = ''; }} />
+          </div>
+        </div>
+
+        <div className="project-settings-label">Цвет</div>
+        <div className="project-settings-section">
+          <input type="color" value={project.color} className="project-settings-color" onChange={(event) => void patchProject(project.id, { color: event.target.value })} />
+        </div>
+
+        <div className="project-settings-meta">
+          <span>С {new Date(project.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+          <span>{projectItemCount} {plural(projectItemCount, 'карточка', 'карточки', 'карточек')}</span>
+          <span>{projectCollections.length} {plural(projectCollections.length, 'борд', 'борда', 'бордов')}</span>
+        </div>
+      </aside>
+    );
   }
 
   function AccountModal() {

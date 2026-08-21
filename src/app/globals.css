@@ -234,18 +234,49 @@ button{cursor:pointer;border:none;background:none;padding:0}
 /* ---------- grid ---------- */
 .scroll{flex:1;overflow-y:auto;padding:8px 20px 120px;scroll-behavior:smooth}
 
-/* ---------- project hero ---------- */
-.project-hero{display:flex;gap:44px;align-items:flex-start;justify-content:space-between;padding:20px 4px 26px;border-bottom:1px solid var(--line-soft);margin-bottom:20px}
-.project-hero-info{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:9px;min-width:200px}
-.project-hero-info h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em}
-.project-hero-meta{display:flex;flex-wrap:wrap;gap:6px 12px;color:var(--muted);font-size:12.5px}
-.project-hero-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:2px}
-.project-hero-share{padding:9px 13px;border-radius:999px;background:rgba(198,240,74,.18);color:var(--ink);font-size:12px;font-weight:600;max-width:100%}
-.project-hero-share b{font-weight:700;word-break:break-all}
-.project-hero-share:hover{background:rgba(198,240,74,.3)}
-.project-hero-cover{position:relative;flex:1 1 auto;min-width:240px;max-width:560px;height:180px;margin-left:auto;border-radius:20px;overflow:hidden;background:var(--hover)}
-.project-hero-cover>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.project-hero-cover-empty{position:absolute;inset:0;background:linear-gradient(135deg,var(--hover),var(--line-soft))}
+/* ---------- project editor shell ---------- */
+.project-editor{padding-top:4px}
+.project-editor-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 4px 18px;border-bottom:1px solid var(--line-soft);margin-bottom:20px}
+.project-editor-crumbs{display:flex;align-items:center;gap:8px;min-width:0;font-size:13.5px;color:var(--muted)}
+.project-editor-crumb{color:var(--muted);font-weight:600}
+.project-editor-crumb:hover{color:var(--ink);text-decoration:underline}
+.project-editor-crumbs b{color:var(--ink);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-editor-save{margin-left:2px;padding:4px 10px;border-radius:999px;background:rgba(198,240,74,.22);color:var(--ink);font-size:11px;font-weight:600;white-space:nowrap}
+.project-editor-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.project-publish{position:relative}
+.project-publish-btn.on{background:rgba(198,240,74,.18);border-color:var(--accent)}
+.publish-menu{position:absolute;z-index:7;right:0;top:calc(100% + 8px);width:270px;padding:8px;background:var(--panel);border:1px solid var(--line-soft);border-radius:14px;box-shadow:0 22px 60px rgba(20,20,15,.18)}
+.publish-menu-link{padding:8px 9px;margin-bottom:4px;border-radius:9px;background:var(--hover);font-family:var(--font-mono),monospace;font-size:11px;color:var(--muted);word-break:break-all}
+.publish-menu button{width:100%;padding:9px;border-radius:9px;text-align:left;font-size:13px}
+.publish-menu button:hover{background:var(--hover)}
+.publish-menu button.danger{color:var(--danger)}
+.project-editor-menu{position:relative}
+.project-editor-menu>button{width:38px;height:38px;border-radius:10px;font-size:16px;color:var(--muted)}
+.project-editor-menu>button:hover{background:var(--hover);color:var(--ink)}
+.project-editor-dropdown{position:absolute;z-index:7;right:0;top:calc(100% + 8px);width:190px;padding:6px;background:var(--panel);border:1px solid var(--line-soft);border-radius:14px;box-shadow:0 22px 60px rgba(20,20,15,.18)}
+.project-editor-dropdown button{width:100%;display:flex;align-items:center;gap:8px;padding:9px;border-radius:9px;text-align:left;font-size:13px;color:var(--danger)}
+.project-editor-dropdown button:hover{background:var(--hover)}
+.project-editor-dropdown .ui-icon{width:15px;height:15px}
+.project-editor-body{display:flex;align-items:flex-start;gap:28px}
+.project-editor-canvas{flex:1;min-width:0}
+.project-tabs{display:flex;gap:6px;padding:2px 4px 18px;border-bottom:1px solid var(--line-soft);margin-bottom:16px}
+.project-tabs button{padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;color:var(--muted)}
+.project-tabs button:hover{background:var(--hover);color:var(--ink)}
+.project-tabs button.on{background:var(--ink);color:#fff}
+
+.project-settings-panel{flex:0 0 280px;width:280px;position:sticky;top:4px;display:flex;flex-direction:column;gap:2px}
+.project-settings-label{font-family:var(--font-mono),monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:10px 2px 8px}
+.project-settings-section{padding:12px;border:1px solid var(--line-soft);border-radius:16px;margin-bottom:6px}
+.project-settings-section .field{margin-bottom:10px}
+.project-settings-section .field:last-child{margin-bottom:0}
+.project-settings-cover{position:relative;width:100%;height:120px;border-radius:12px;overflow:hidden;background:var(--hover);margin-bottom:10px}
+.project-settings-cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.project-settings-cover-empty{position:absolute;inset:0;background:linear-gradient(135deg,var(--hover),var(--line-soft))}
+.project-settings-cover-actions{display:flex}
+.project-settings-cover-actions .btn{width:100%;justify-content:center}
+.project-settings-color{width:100%;height:38px;padding:3px;border-radius:10px;border:1px solid var(--line)}
+.project-settings-meta{display:flex;flex-direction:column;gap:6px;padding:12px 2px;color:var(--muted);font-size:12px}
+
 .project-hero-mosaic{position:absolute;inset:0;display:grid;gap:2px}
 .project-hero-mosaic img{width:100%;height:100%;object-fit:cover;display:block}
 .project-hero-mosaic.count-1{grid-template-columns:1fr}
@@ -253,17 +284,19 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .project-hero-mosaic.count-3{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
 .project-hero-mosaic.count-3 img:first-child{grid-row:1/3}
 .project-hero-mosaic.count-4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
-.project-hero-cover-actions{position:absolute;right:12px;top:12px;z-index:2;display:flex;gap:8px}
-.project-hero-cover-actions button{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.16)}
-.project-hero-cover-actions button:hover{background:var(--hover)}
-.project-hero-cover-actions .ui-icon{width:16px;height:16px}
-.project-tabs{display:flex;gap:6px;padding:2px 4px 18px;border-bottom:1px solid var(--line-soft);margin-bottom:16px}
-.project-tabs button{padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;color:var(--muted)}
-.project-tabs button:hover{background:var(--hover);color:var(--ink)}
-.project-tabs button.on{background:var(--ink);color:#fff}
-@media (max-width:760px){
-  .project-hero{flex-direction:column;gap:16px}
-  .project-hero-cover{width:100%;max-width:none;margin-left:0;height:auto;aspect-ratio:16/9}
+
+.template-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.template-card{padding:10px;border:1px solid var(--line);border-radius:12px;text-align:left;display:flex;flex-direction:column;gap:6px}
+.template-card:hover{border-color:var(--muted)}
+.template-card.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.template-card b{font-size:12.5px;font-weight:650}
+.template-card small{color:var(--muted);font-size:11px}
+.template-swatch{display:block;width:100%;height:34px;border-radius:8px}
+.template-swatch-blank{background:repeating-linear-gradient(45deg,var(--line-soft),var(--line-soft) 6px,var(--panel) 6px,var(--panel) 12px)}
+
+@media (max-width:960px){
+  .project-editor-body{flex-direction:column}
+  .project-settings-panel{width:100%;flex:0 0 auto;position:static}
 }
 
 .grid{display:block;position:relative;width:calc(100% + 16px);min-height:1px;margin:0 -8px;container-type:inline-size}
