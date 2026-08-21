@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   }
 
   if (body.block) {
-    const allowed = new Set(['text', 'heading', 'callout', 'html', 'divider']);
+    const allowed = new Set(['text', 'heading', 'callout', 'html', 'divider', 'widget_calendar', 'widget_weather']);
     const kind = String(body.block.kind || '');
     if (!allowed.has(kind)) return NextResponse.json({ error: 'Неизвестный тип блока' }, { status: 400 });
     const title = String(body.block.title || '').slice(0, 500);

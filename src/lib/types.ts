@@ -16,7 +16,7 @@ export type Item = {
   id: string;
   slug: string;
   collection_id: string | null;
-  kind: 'image' | 'video' | 'embed' | 'link' | 'text' | 'heading' | 'callout' | 'html' | 'divider';
+  kind: 'image' | 'video' | 'embed' | 'link' | 'text' | 'heading' | 'callout' | 'html' | 'divider' | 'widget_calendar' | 'widget_weather';
   provider: string | null;
   position: number;
   fav: boolean;

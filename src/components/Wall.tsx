@@ -9,17 +9,31 @@ import { CSS } from '@dnd-kit/utilities';
 import type Muuri from 'muuri';
 import type { Account, Collection, Item, Progress, Project } from '@/lib/types';
 import { shrink, videoPreview, videoSize } from '@/lib/resize';
+import CalendarWidget from './widgets/CalendarWidget';
+import WeatherWidget from './widgets/WeatherWidget';
+import type { WidgetSettings } from './widgets/CalendarWidget';
 
 type Props = { initialProjects: Project[]; initialCollections: Collection[]; initialItems: Item[]; initialActive?: string; initialProject?: string; initialPost?: string };
 type Active = 'all' | 'fav' | string;
-type NewElement = 'link' | 'text' | 'callout' | 'html';
+type NewElement = 'link' | 'text' | 'callout' | 'html' | 'widget_calendar' | 'widget_weather';
+type WidgetKind = 'widget_calendar' | 'widget_weather';
 type ElementSize = 'S' | 'M' | 'L';
 type TextStyle = Item['text_style'];
 type AiSuggestion = { title: string; description: string; collections: string[]; tags: string[] };
 type AiMode = 'auto' | 'off';
 
-const BLOCK_KINDS = new Set(['text', 'heading', 'callout', 'html', 'divider']);
+const BLOCK_KINDS = new Set(['text', 'heading', 'callout', 'html', 'divider', 'widget_calendar', 'widget_weather']);
 const isBlock = (item: Item) => BLOCK_KINDS.has(item.kind);
+const isWidgetKind = (kind: string): kind is WidgetKind => kind === 'widget_calendar' || kind === 'widget_weather';
+const WIDGET_ACCENTS = ['#5B7CFA', '#F5A623', '#34C759', '#A78BFA', '#FF6B81'];
+function parseWidgetSettings(note: string | null | undefined): WidgetSettings {
+  try {
+    const parsed = JSON.parse(note || '');
+    return { theme: parsed.theme === 'light' ? 'light' : 'dark', accent: typeof parsed.accent === 'string' ? parsed.accent : WIDGET_ACCENTS[0] };
+  } catch {
+    return { theme: 'dark', accent: WIDGET_ACCENTS[0] };
+  }
+}
 const elementSize = (size: Item['display_size']): ElementSize => size === 'M' ? 'M' : size === 'L' || size === 'XL' ? 'L' : 'S';
 const pinCrop = (item: Item) => {
   const numericPosition = Number(item.position);
@@ -53,6 +67,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [account, setAccount] = useState<Account | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [elementMenu, setElementMenu] = useState(false);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [newElement, setNewElement] = useState<NewElement | null>(null);
@@ -138,6 +153,17 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const saved = localStorage.getItem('embeddd:ai-mode');
     setAiMode(saved === 'off' ? 'off' : 'auto');
   }, []);
+
+  useEffect(() => {
+    setSidebarCollapsed(localStorage.getItem('embeddd:sidebar-collapsed') === '1');
+  }, []);
+
+  function toggleSidebarCollapsed() {
+    setSidebarCollapsed((value) => {
+      localStorage.setItem('embeddd:sidebar-collapsed', value ? '0' : '1');
+      return !value;
+    });
+  }
 
   function chooseAiMode(mode: AiMode) {
     setAiMode(mode);
@@ -1108,6 +1134,13 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         {item.kind === 'callout' && <div className="content-block callout-block"><span>{item.title || '💡'}</span><p>{item.note}</p></div>}
         {item.kind === 'html' && <div ref={boxRef} className="html-block" style={{ height: (item.embed_h || 280) + 'px' }}><iframe title="HTML-блок" sandbox="allow-scripts" srcDoc={item.note} /></div>}
         {item.kind === 'divider' && <div className="divider-block"><i /></div>}
+        {isWidgetKind(item.kind) && (
+          <div className="content-block widget-block" onClick={(e) => e.stopPropagation()}>
+            {item.kind === 'widget_calendar'
+              ? <CalendarWidget settings={parseWidgetSettings(item.note)} />
+              : <WeatherWidget settings={parseWidgetSettings(item.note)} />}
+          </div>
+        )}
 
         {['image', 'video', 'embed'].includes(item.kind) && (item.title || item.note) && (
           <div className="meta">
@@ -1157,8 +1190,11 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   return (
     <div className={'app' + (moveMode ? ' move-mode' : '')}>
-      <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
-        <button className="brand brand-home" aria-label="На главную" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
+      <aside className={'sidebar' + (menuOpen ? ' open' : '') + (sidebarCollapsed ? ' collapsed' : '')}>
+        <div className="sidebar-head">
+          <button className="brand brand-home" aria-label="На главную" data-tooltip="embeddd" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
+          <button className="sidebar-collapse" aria-label={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'} title={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'} onClick={toggleSidebarCollapsed}>{sidebarCollapsed ? '»' : '«'}</button>
+        </div>
         <div className="nav">
           {activeProject !== 'all' ? <>
             <div className="project-workspace">
@@ -1174,7 +1210,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             {!!projects.length && <>
               <div className="nav-label figma-pages"><span>Мои проекты</span><button aria-label="Новый проект" onClick={() => setProjectModal('new')}><Icon name="plus" /></button></div>
               {projects.map((project) => { const projectBoards = boardsForProject(project.id); return <BoardDropZone key={project.id} id={project.id}>
-                <button className="project-row project-heading" onClick={() => { setActiveProject(project.id); setActive('all'); }}>
+                <button className="project-row project-heading" data-tooltip={project.name} onClick={() => { setActiveProject(project.id); setActive('all'); }}>
                   <Icon name="folder" /><b>{project.name}</b><i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
                 </button>
                 <SortableContext items={projectBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}><div className="project-tree-boards">{projectBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</div></SortableContext>
@@ -1231,6 +1267,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
                 <button onClick={() => { setElementMenu(false); setNewElement('text'); }}><b>T</b><span>Текст<small>Заметка или описание</small></span></button>
                 <button onClick={() => { setElementMenu(false); setNewElement('callout'); }}><b>◉</b><span>Callout<small>Акцент с эмодзи</small></span></button>
                 <button onClick={() => { setElementMenu(false); setNewElement('html'); }}><b>&lt;/&gt;</b><span>HTML<small>Свой код в изолированном блоке</small></span></button>
+                <i />
+                <button onClick={() => { setElementMenu(false); setNewElement('widget_calendar'); }}><b>▦</b><span>Календарь<small>Живой виджет с текущей датой</small></span></button>
+                <button onClick={() => { setElementMenu(false); setNewElement('widget_weather'); }}><b>☀</b><span>Погода<small>Живой виджет по геолокации</small></span></button>
               </div>
             </>}
           </div>
@@ -1377,7 +1416,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       {collModal && <CollModal />}
       {projectModal && <ProjectModal />}
       {accountOpen && <AccountModal />}
-      {newElement && <NewElementModal kind={newElement} />}
+      {newElement && (isWidgetKind(newElement) ? <WidgetSettingsModal kind={newElement} /> : <NewElementModal kind={newElement} />)}
       {lightbox && <Lightbox />}
 
       {upload && (
@@ -1400,6 +1439,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     return (
       <div
         data-collection-drop={id}
+        data-tooltip={name}
         className={'coll' + (active === id ? ' active' : '') + (compact ? ' compact' : '') + (draggingBoard === coll?.id ? ' board-dragging' : '')}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('.coll-edit')) return;
@@ -1415,12 +1455,12 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   }
 
 
-  function NewElementModal({ kind }: { kind: NewElement }) {
+  function NewElementModal({ kind }: { kind: Exclude<NewElement, WidgetKind> }) {
     const [value, setValue] = useState('');
     const [icon, setIcon] = useState('💡');
     const [textStyle, setTextStyle] = useState<TextStyle>('p');
     const [size, setSize] = useState<ElementSize>('S');
-    const names: Record<NewElement, string> = { link: 'Ссылка / Embed', text: 'Текст', callout: 'Callout', html: 'HTML' };
+    const names: Record<Exclude<NewElement, WidgetKind>, string> = { link: 'Ссылка / Embed', text: 'Текст', callout: 'Callout', html: 'HTML' };
     const submit = () => {
       if (!value.trim()) return;
       if (kind === 'link') { addLink(value.trim()); setNewElement(null); return; }
@@ -1447,6 +1487,51 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     );
   }
 
+  function WidgetSettingsModal({ kind }: { kind: WidgetKind }) {
+    const [theme, setTheme] = useState<WidgetSettings['theme']>('dark');
+    const [accent, setAccent] = useState(WIDGET_ACCENTS[0]);
+    const title = kind === 'widget_calendar' ? 'Календарь' : 'Погода';
+
+    return (
+      <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setNewElement(null); }}>
+        <div className="widget-settings-modal">
+          <div className="widget-settings-head">
+            <button aria-label="Назад" onClick={() => setNewElement(null)}><Icon name="back" /></button>
+            <h3>{title}</h3>
+            <button className="widget-settings-save" onClick={() => addBlock(kind, title, JSON.stringify({ theme, accent }))}>Добавить</button>
+          </div>
+
+          <div className="widget-settings-section">
+            <div className="widget-settings-label">Оформление</div>
+            <div className="widget-settings-theme-cards">
+              <button className={theme === 'light' ? 'on' : ''} onClick={() => setTheme('light')}>
+                <span className="widget-theme-preview widget-theme-preview-light" />
+                <small>Светлая</small>
+              </button>
+              <button className={theme === 'dark' ? 'on' : ''} onClick={() => setTheme('dark')}>
+                <span className="widget-theme-preview widget-theme-preview-dark" />
+                <small>Тёмная</small>
+              </button>
+            </div>
+          </div>
+
+          <div className="widget-settings-section widget-settings-row">
+            <div className="widget-settings-label">Акцентный цвет</div>
+            <div className="widget-settings-swatches">
+              {WIDGET_ACCENTS.map((c) => (
+                <button key={c} className={accent === c ? 'on' : ''} style={{ background: c }} aria-label={c} onClick={() => setAccent(c)} />
+              ))}
+            </div>
+          </div>
+
+          <div className="widget-settings-preview">
+            {kind === 'widget_calendar' ? <CalendarWidget settings={{ theme, accent }} /> : <WeatherWidget settings={{ theme, accent }} />}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function EditModal({ item }: { item: Item }) {
     const [t, setT] = useState(item.title || '');
     const [n, setN] = useState(item.note || '');
@@ -1454,6 +1539,48 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const [size, setSize] = useState<ElementSize>(elementSize(item.display_size));
     const [textStyle, setTextStyle] = useState<TextStyle>(item.text_style || 'p');
     const [tags, setTags] = useState((item.tags || []).join(', '));
+    const initialWidget = parseWidgetSettings(item.note);
+    const [widgetTheme, setWidgetTheme] = useState<WidgetSettings['theme']>(initialWidget.theme);
+    const [widgetAccent, setWidgetAccent] = useState(initialWidget.accent);
+
+    if (isWidgetKind(item.kind)) {
+      const title = item.kind === 'widget_calendar' ? 'Календарь' : 'Погода';
+      return (
+        <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
+          <div className="widget-settings-modal">
+            <div className="widget-settings-head">
+              <button aria-label="Назад" onClick={() => setEditing(null)}><Icon name="back" /></button>
+              <h3>{title}</h3>
+              <button className="widget-settings-save" onClick={() => { patch(item.id, { note: JSON.stringify({ theme: widgetTheme, accent: widgetAccent }) }); setEditing(null); }}>Сохранить</button>
+            </div>
+            <div className="widget-settings-section">
+              <div className="widget-settings-label">Оформление</div>
+              <div className="widget-settings-theme-cards">
+                <button className={widgetTheme === 'light' ? 'on' : ''} onClick={() => setWidgetTheme('light')}>
+                  <span className="widget-theme-preview widget-theme-preview-light" />
+                  <small>Светлая</small>
+                </button>
+                <button className={widgetTheme === 'dark' ? 'on' : ''} onClick={() => setWidgetTheme('dark')}>
+                  <span className="widget-theme-preview widget-theme-preview-dark" />
+                  <small>Тёмная</small>
+                </button>
+              </div>
+            </div>
+            <div className="widget-settings-section widget-settings-row">
+              <div className="widget-settings-label">Акцентный цвет</div>
+              <div className="widget-settings-swatches">
+                {WIDGET_ACCENTS.map((color) => (
+                  <button key={color} className={widgetAccent === color ? 'on' : ''} style={{ background: color }} aria-label={color} onClick={() => setWidgetAccent(color)} />
+                ))}
+              </div>
+            </div>
+            <div className="widget-settings-preview">
+              {item.kind === 'widget_calendar' ? <CalendarWidget settings={{ theme: widgetTheme, accent: widgetAccent }} /> : <WeatherWidget settings={{ theme: widgetTheme, accent: widgetAccent }} />}
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="overlay on" onClick={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
@@ -1602,7 +1729,7 @@ function BoardDropZone({ id, children }: { id: string; children: ReactNode }) {
 }
 
 function BoardRowVisual({ board, overlay = false }: { board: Collection; count: number; overlay?: boolean }) {
-  return <div className={'coll board-row-visual' + (overlay ? ' board-overlay' : '')}>
+  return <div className={'coll board-row-visual' + (overlay ? ' board-overlay' : '')} data-tooltip={board.name}>
     <span className="coll-dot" style={{ background: board.color }} /><span className="coll-name">{board.name}</span><span className="board-grip" aria-hidden="true">⠿</span>
   </div>;
 }
@@ -1610,7 +1737,7 @@ function BoardRowVisual({ board, overlay = false }: { board: Collection; count: 
 function SortableBoardRow({ board, active, onOpen, onEdit }: { board: Collection; active: boolean; count: number; onOpen: () => void; onEdit: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: board.id, data: { type: 'board', containerId: board.project_id || 'unassigned' } });
   const style: CSSProperties = { transform: CSS.Transform.toString(transform), transition };
-  return <div ref={setNodeRef} style={style} className={'coll sortable-board' + (active ? ' active' : '') + (isDragging ? ' board-dragging' : '')} onClick={onOpen} {...attributes} {...listeners}>
+  return <div ref={setNodeRef} style={style} data-tooltip={board.name} className={'coll sortable-board' + (active ? ' active' : '') + (isDragging ? ' board-dragging' : '')} onClick={onOpen} {...attributes} {...listeners}>
     <span className="coll-dot" style={{ background: board.color }} /><span className="coll-name">{board.name}</span><button className="coll-edit" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }}>⋯</button><span className="board-grip" aria-hidden="true">⠿</span>
   </div>;
 }
