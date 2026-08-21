@@ -5,14 +5,6 @@ import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * Прогоняет db/schema.sql и все migrations/*.sql внутри самого приложения,
- * там где DATABASE_URL реально доступен (в отличие от локального
- * `vercel env pull`, который не может скачать значения Sensitive-переменных).
- * Все операторы идемпотентны (if not exists / on conflict do nothing), так
- * что повторный вызов безопасен. Доступ уже защищён общей авторизацией сайта
- * (см. src/proxy.ts) — отдельный секрет не нужен.
- */
 async function run() {
   const sql = db();
   const root = process.cwd();
@@ -35,9 +27,13 @@ async function run() {
 }
 
 export async function GET() {
-  return run();
+  return NextResponse.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: 'POST' } });
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  const expected = process.env.ADMIN_MIGRATION_SECRET;
+  if (!expected) return NextResponse.json({ error: 'Migration endpoint is disabled' }, { status: 404 });
+  const provided = req.headers.get('x-migration-secret');
+  if (!provided || provided !== expected) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   return run();
 }
