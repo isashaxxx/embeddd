@@ -1,16 +1,16 @@
 import { NextResponse } from 'next/server';
+import { COOKIE, verify } from '@/lib/auth';
 
 /** Возвращает true, если запрос авторизован. */
 export async function requireAuth(req: Request) {
-  // Добавлено в middleware.ts: проверка cookie. Здесь защита на уровне API.
-  // Если middleware пропущен (e.g. edge), fallback на cookie + verify.
-  const cookieHeader = (req as Request).headers.get('cookie');
+  // Дублирует проверку middleware (proxy.ts) на уровне API — defense in depth,
+  // если матчер middleware когда-нибудь снова изменят так, что роут окажется
+  // не защищён.
+  const cookieHeader = req.headers.get('cookie');
   if (!cookieHeader) return false;
-  const match = cookieHeader.match(/(^|;\s*)embeddd_session=([^;]+)/);
+  const match = cookieHeader.match(new RegExp(`(^|;\\s*)${COOKIE}=([^;]+)`));
   const token = match?.[2];
   if (!token) return false;
-  // verify из auth.ts — используется в middleware.
-  const { verify } = await import('@/lib/auth');
   return verify(token);
 }
 

@@ -14,7 +14,11 @@ export type Parsed = {
 };
 
 function isPrivateHostname(hostname: string) {
-  const host = hostname.toLowerCase().replace(/\.$/, '');
+  // URL().hostname возвращает IPv6-адрес в квадратных скобках (напр. "[::1]"),
+  // а сравнения ниже и isIP() ожидают адрес без них — без этой строки ни одна
+  // IPv6-проверка никогда не срабатывала, и http://[::1]/, http://[fc00::1]/
+  // и т.п. проходили как обычные публичные ссылки.
+  const host = hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
   if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
   if (host === '0.0.0.0' || host === '::' || host === '::1') return true;
   if (isIP(host) === 4) {
@@ -41,7 +45,13 @@ function safeHttpUrl(raw: string) {
 /** Определяет, чем является ссылка: эмбедом, картинкой, видео или закладкой. */
 export function parseLink(raw: string): Parsed | null {
   let url = raw.trim();
-  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  // Достраиваем https:// только если во входе вообще нет схемы (голый домен
+  // или путь). Раньше проверялось конкретно "начинается с http(s)://" — вход
+  // вида ftp://…/javascript:…/file://… не совпадал с этим и молча склеивался
+  // в https://ftp://…, что парсилось как валидный, но мусорный URL и обходило
+  // проверку протокола в safeHttpUrl. Теперь любая присутствующая схема (даже
+  // неподдерживаемая) передаётся как есть и отсеивается там же.
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = 'https://' + url;
   const u = safeHttpUrl(url);
   if (!u) return null;
 

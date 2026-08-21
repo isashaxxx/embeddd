@@ -12,6 +12,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   const { name, color, position, coverUrl, accessMode, description } = body;
   const sql = db();
+
+  const exists = (await sql`select id from projects where id = ${id} limit 1`) as unknown as { id: string }[];
+  if (!exists.length) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+
   if (name !== undefined) {
     const value = String(name).trim().slice(0, 160);
     if (!value) return NextResponse.json({ error: 'Название не может быть пустым' }, { status: 400 });

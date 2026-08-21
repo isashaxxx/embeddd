@@ -111,8 +111,7 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .coll.active .coll-dot{background:var(--accent)}
 .coll-icon.ui-icon{width:17px;height:17px;flex:0 0 17px;color:var(--side-muted)}
 .coll.active .coll-icon.ui-icon{color:var(--side-ink)}
-.coll-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
-.coll-name,.project-row b,.card-title,.pin-title{letter-spacing:-.005em}
+.coll-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;letter-spacing:-.005em}
 .coll-count{font-family:var(--font-mono),monospace;font-size:11px;color:var(--side-muted)}
 .coll-edit{opacity:0;font-size:13px;line-height:1;padding:2px 4px;border-radius:6px;display:grid;place-items:center;color:var(--side-ink)}
 .coll:hover .coll-edit{opacity:.55}
@@ -124,10 +123,6 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .sidebar.collapsed .coll{justify-content:center;padding:10px 0}
 .sidebar.collapsed .coll-name,.sidebar.collapsed .coll-edit,.sidebar.collapsed .coll-count,.sidebar.collapsed .board-grip{display:none}
 .sidebar.collapsed .coll-dot{width:10px;height:10px;border-radius:50%}
-.sidebar.collapsed .project-row{justify-content:center;padding:14px 0}
-.sidebar.collapsed .project-row b,.sidebar.collapsed .project-row i{display:none}
-.sidebar.collapsed .project-workspace>div{display:none}
-.sidebar.collapsed .project-workspace{justify-content:center}
 .sidebar.collapsed .figma-pages{display:none}
 [data-tooltip]{position:relative}
 .sidebar.collapsed [data-tooltip]:hover::after,.sidebar.collapsed [data-tooltip]:focus-visible::after{
@@ -135,17 +130,6 @@ button{cursor:pointer;border:none;background:none;padding:0}
   padding:7px 11px;border-radius:9px;background:var(--ink);color:#fff;font-size:12px;font-weight:600;
   white-space:nowrap;box-shadow:0 8px 24px rgba(20,20,15,.28);z-index:20;pointer-events:none;
 }
-.add-coll{
-  width:100%;text-align:left;padding:9px 10px;border-radius:10px;color:var(--muted);
-  display:flex;gap:9px;align-items:center;margin-top:4px;
-}
-.add-coll:hover{background:rgba(20,20,15,.045);color:var(--ink)}
-.side-foot{padding:12px 16px;border-top:1px solid var(--line)}
-.logout-btn{width:100%;display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;color:var(--muted);font-size:13px;text-decoration:none}
-.logout-btn:hover{background:var(--hover);color:var(--danger)}
-.logout-btn .ui-icon{width:17px;height:17px}
-.side-foot button{font-size:12px;color:var(--muted);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line)}
-.side-foot button:hover{color:var(--ink)}
 .account-entry{width:100%;display:flex;align-items:center;gap:9px;padding:5px;border-radius:10px;text-align:left;text-decoration:none}.account-entry>img,.account-entry>span{width:32px;height:32px;flex:0 0 32px;border-radius:50%;object-fit:cover;display:grid;place-items:center;background:var(--accent);color:var(--ink);font-weight:750}.account-entry>div{display:flex;flex:1;min-width:0;flex-direction:column}.account-entry b{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.account-entry small{margin-top:2px;color:var(--muted);font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.account-entry .ui-icon{width:16px;height:16px;color:var(--muted);margin-left:auto}
 .account-entry:hover{background:var(--side-hover)}
 
@@ -183,33 +167,6 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .sidebar.collapsed .account-entry{width:38px;padding:0;justify-content:center}
 .sidebar.collapsed .account-entry>div,.sidebar.collapsed .account-entry>.ui-icon{display:none}
 .sidebar.collapsed .sidebar-account-popover{left:calc(100% + 10px);right:auto;bottom:0;width:220px}
-
-/* ---------- account control (topbar) ---------- */
-.account-control{position:relative;margin-left:4px}
-.account-avatar-btn{width:32px;height:32px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--accent);color:var(--ink);font-weight:750;font-size:13px;flex:0 0 32px;border:2px solid var(--line-soft)}
-.account-avatar-btn>img{width:100%;height:100%;object-fit:cover}
-/* Зазор до карточки — мёртвая зона, где курсор теряет :hover при движении
-   вниз к попапу. Держим hit-area (эту обёртку) сплошной от кнопки до низа
-   карточки через padding-top, а не margin/top-offset на самой карточке. */
-.account-hover-card{
-  position:absolute;z-index:9;right:0;top:100%;width:220px;padding-top:9px;
-  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .14s,visibility .14s;
-}
-.account-control:hover .account-hover-card,.account-control:focus-within .account-hover-card{opacity:1;visibility:visible;pointer-events:auto}
-.account-hover-card-inner{
-  padding:6px;background:#fff;border:1px solid var(--line-soft);border-radius:15px;
-  box-shadow:0 18px 50px rgba(20,20,15,.18);
-}
-.account-hover-action{width:100%;display:flex;align-items:center;gap:9px;padding:8px 7px;border-radius:9px;font-size:12px;color:var(--muted);text-align:left}
-.account-hover-action:hover{background:var(--hover);color:var(--ink)}
-.account-hover-action.on{background:rgba(198,240,74,.18);color:var(--ink)}
-.account-hover-action .ui-icon{width:15px;height:15px}
-.account-hover-row{display:flex;align-items:center;gap:2px}
-.account-hover-row .account-hover-action{flex:1;min-width:0}
-.account-hover-add{width:27px;height:27px;flex:0 0 27px;display:grid;place-items:center;border-radius:8px;color:var(--muted)}
-.account-hover-add:hover{background:var(--hover);color:var(--ink)}
-.account-hover-add .ui-icon{width:14px;height:14px}
-.account-hover-sep{display:block;height:1px;margin:5px 6px;background:var(--line-soft)}
 
 /* ---------- main ---------- */
 .main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
@@ -256,23 +213,8 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .icon-control{width:38px;height:38px;flex:0 0 38px;display:grid;place-items:center;border-radius:50%;background:transparent;font-size:18px;font-weight:600}
 .icon-control:hover{background:var(--hover)}
 .ui-icon{width:22px;height:22px;display:block}
-.top-search{display:flex;align-items:center;justify-content:flex-end;border-radius:999px;margin-left:0;transition:background .16s}
-.top-search.open{background:var(--hover);padding-left:12px}.top-search input{width:190px;border:0;outline:0;background:transparent;font-size:13px}.top-search .icon-control{background:transparent}
-.project-row{width:100%;height:38px;padding:0 10px;border-radius:10px;display:flex;align-items:center;gap:9px;text-align:left;color:var(--side-muted)}
-.project-row:hover,.project-row.on{background:var(--side-hover);color:var(--side-ink)}
-.project-row>span{width:11px;height:11px;border-radius:4px}.project-row>b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:550}.project-row>i{font-style:normal;letter-spacing:1px;opacity:0}.project-row:hover>i{opacity:.65}
-.project-row.project-heading{height:auto;padding:14px 8px 6px;border-radius:0;color:var(--side-muted);font-family:var(--font-mono),monospace;letter-spacing:.1em;text-transform:uppercase}.project-row.project-heading:hover{background:transparent;color:var(--side-ink)}.project-row.project-heading>b{font-family:inherit;font-size:10px;font-weight:400;letter-spacing:inherit}.project-row.project-heading>i{font-family:var(--font-sans),sans-serif;font-size:11px;text-transform:none}.project-row.project-heading .ui-icon{width:14px;height:14px;flex:0 0 14px}
-.project-row.project-heading>i.project-heading-toggle{opacity:1;flex:0 0 20px;width:20px;height:20px;display:grid;place-items:center;border-radius:6px}
-.project-row.project-heading>i.project-heading-toggle:hover{background:var(--side-hover);color:var(--side-ink)}
-.project-heading-toggle .ui-icon{width:13px;height:13px;transition:transform .15s}
-.project-heading-toggle.is-collapsed .ui-icon{transform:rotate(-90deg)}
-.sidebar.collapsed .project-row.project-heading>i.project-heading-toggle{display:none}
-.project-tree{border-radius:11px;padding:2px;transition:background .12s,box-shadow .12s}.project-tree.drop{background:rgba(198,240,74,.2);box-shadow:inset 0 0 0 1px var(--accent)}
-.project-tree-boards{padding-left:0}.project-tree-boards:empty{display:none}.coll.board-dragging{opacity:.35}
-.sortable-board{touch-action:manipulation}.sortable-board .board-grip{width:15px;flex:0 0 15px;color:var(--muted);font-size:15px;line-height:1;opacity:0;cursor:grab}.sortable-board:hover .board-grip{opacity:.55}.sortable-board:active .board-grip{cursor:grabbing}.board-overlay{width:240px;margin:0;background:#fff;box-shadow:0 12px 34px rgba(20,20,15,.22);cursor:grabbing}.board-overlay .board-grip{color:var(--muted)}.project-tree.drop>.project-row,.project-tree.drop>.nav-label{color:var(--ink)}
-.project-workspace{display:flex;align-items:center;gap:9px;margin:2px 0 14px;padding:5px 3px 12px;border-bottom:1px solid var(--side-line);color:var(--side-ink)}
-.project-workspace>button{width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;border-radius:8px;color:var(--side-ink)}.project-workspace>button:hover{background:var(--side-hover)}.project-workspace .ui-icon{width:18px;height:18px}
-.project-workspace>div{display:flex;flex:1;min-width:0;flex-direction:column}.project-workspace b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.project-workspace small{margin-top:2px;color:var(--side-muted);font-size:10px}
+.coll.board-dragging{opacity:.35}
+.sortable-board{touch-action:manipulation}.sortable-board .board-grip{width:15px;flex:0 0 15px;color:var(--muted);font-size:15px;line-height:1;opacity:0;cursor:grab}.sortable-board:hover .board-grip{opacity:.55}.sortable-board:active .board-grip{cursor:grabbing}.board-overlay{width:240px;margin:0;background:#fff;box-shadow:0 12px 34px rgba(20,20,15,.22);cursor:grabbing}.board-overlay .board-grip{color:var(--muted)}
 .figma-pages{display:flex;align-items:center;justify-content:space-between}.figma-pages button{width:27px;height:27px;display:grid;place-items:center;border-radius:7px;color:var(--side-muted)}.figma-pages button:hover{background:var(--side-hover);color:var(--side-ink)}.figma-pages .ui-icon{width:17px;height:17px}
 .nav-label-actions{display:flex;align-items:center;gap:2px}
 .menu-shield{position:fixed;inset:0;z-index:6;cursor:default}
@@ -738,7 +680,6 @@ button{cursor:pointer;border:none;background:none;padding:0}
   .sidebar.collapsed .sidebar-head{flex-direction:row;padding:16px 12px 12px 20px;justify-content:flex-start}
   .sidebar.collapsed .brand{flex:1}
   .sidebar.collapsed .brand b{display:block}
-  .sidebar.collapsed .project-row.project-heading>i.project-heading-toggle{display:grid}
   .sidebar.collapsed .nav{padding:4px 12px 10px;overflow-y:auto}
   .sidebar.collapsed .nav-label{display:block}
   .sidebar.collapsed .coll{justify-content:flex-start;padding:10px 12px}
@@ -746,10 +687,6 @@ button{cursor:pointer;border:none;background:none;padding:0}
   .sidebar.collapsed .coll-edit{display:grid}
   .sidebar.collapsed .coll-count,.sidebar.collapsed .board-grip{display:inline}
   .sidebar.collapsed .coll-dot{width:8px;height:8px;border-radius:3px}
-  .sidebar.collapsed .project-row{justify-content:flex-start;padding:0 10px}
-  .sidebar.collapsed .project-row b,.sidebar.collapsed .project-row i{display:inline}
-  .sidebar.collapsed .project-workspace>div{display:flex}
-  .sidebar.collapsed .project-workspace{justify-content:flex-start}
   .sidebar.collapsed .figma-pages{display:flex}
   .lb{left:0;top:68px;padding:20px 10px 28px}.lb-layout{grid-template-columns:1fr}.pin-detail{grid-template-columns:1fr;border-radius:18px}.detail-related{columns:2;column-gap:10px}.detail-related>button{margin-bottom:16px}.pin-detail-media{min-height:0}.pin-detail-media img,.pin-detail-media video{max-height:68vh}.pin-detail-info{padding:22px}.pin-detail-info h2{margin-top:16px}
   .account-grid,.permissions{grid-template-columns:1fr}

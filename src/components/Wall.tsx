@@ -458,6 +458,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   }
 
   function persistGridOrder(ids: string[]) {
+    const snapshot = items;
     const orderedSet = new Set(ids);
     setItems((current) => {
       const byId = new Map(current.map((item) => [item.id, item]));
@@ -466,6 +467,14 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     });
     void fetch('/api/items/reorder', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }),
+    }).then((response) => {
+      if (!response.ok) {
+        setItems(snapshot);
+        say('Не удалось сохранить порядок карточек');
+      }
+    }).catch(() => {
+      setItems(snapshot);
+      say('Не удалось сохранить порядок карточек');
     });
   }
 
@@ -544,16 +553,30 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   function resizeSelected(size: ElementSize) {
     const ids = [...selected].filter((id) => items.some((item) => item.id === id && isBlock(item)));
+    const previousSizes = new Map(items.filter((item) => ids.includes(item.id)).map((item) => [item.id, item.display_size]));
     setItems((p) => p.map((item) => ids.includes(item.id) ? { ...item, display_size: size } : item));
-    ids.forEach((id) => fetch(`/api/items/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displaySize: size }) }));
+    void Promise.all(ids.map((id) => fetch(`/api/items/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displaySize: size }) }).then((res) => ({ id, ok: res.ok })))).then((results) => {
+      const failed = results.filter((r) => !r.ok).map((r) => r.id);
+      if (failed.length) {
+        setItems((p) => p.map((item) => failed.includes(item.id) ? { ...item, display_size: previousSizes.get(item.id) ?? item.display_size } : item));
+        say('Не удалось сохранить размер для части карточек');
+      }
+    });
   }
 
   function moveSelected(collectionId: string) {
     if (collectionId === '__none__') collectionId = '';
     const ids = [...selected].filter((id) => items.some((item) => item.id === id));
+    const previousBoards = new Map(items.filter((item) => ids.includes(item.id)).map((item) => [item.id, item.collection_id]));
     setItems((p) => p.map((item) => ids.includes(item.id) ? { ...item, collection_id: collectionId || null } : item));
-    ids.forEach((id) => fetch(`/api/items/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collectionId: collectionId || null }) }));
     setSelected(new Set());
+    void Promise.all(ids.map((id) => fetch(`/api/items/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collectionId: collectionId || null }) }).then((res) => ({ id, ok: res.ok })))).then((results) => {
+      const failed = results.filter((r) => !r.ok).map((r) => r.id);
+      if (failed.length) {
+        setItems((p) => p.map((item) => failed.includes(item.id) ? { ...item, collection_id: previousBoards.get(item.id) ?? null } : item));
+        say('Не удалось перенести часть карточек');
+      }
+    });
   }
 
   async function deleteSelected() {
@@ -598,9 +621,20 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     if (sourceIds.includes(active)) setActive(target.id);
     setSelected(new Set());
 
-    await Promise.all(affected.map((item) => fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collectionId: target.id }) })));
-    await Promise.all(sourceIds.map((id) => fetch(`/api/collections/${id}`, { method: 'DELETE' })));
-    say(`Объединено в «${target.name}»`);
+    const [itemResults, boardResults] = await Promise.all([
+      Promise.all(affected.map((item) => fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collectionId: target.id }) }).then((res) => res.ok).catch(() => false))),
+      Promise.all(sourceIds.map((id) => fetch(`/api/collections/${id}`, { method: 'DELETE' }).then((res) => res.ok).catch(() => false))),
+    ]);
+    const failedBoards = sources.filter((_, index) => !boardResults[index]);
+    if (failedBoards.length) setCollections((p) => [...p, ...failedBoards]);
+    const failedItems = affected.filter((_, index) => !itemResults[index]);
+    if (failedItems.length) {
+      const originalCollectionOf = new Map(failedItems.map((item) => [item.id, item.collection_id]));
+      setItems((p) => p.map((item) => originalCollectionOf.has(item.id) ? { ...item, collection_id: originalCollectionOf.get(item.id)! } : item));
+    }
+
+    if (failedBoards.length || failedItems.length) say('Часть не объединилась — попробуй ещё раз');
+    else say(`Объединено в «${target.name}»`);
   }
 
   // Автоматическая склейка похожих бордов: ИИ иногда создаёт по борду на
@@ -661,20 +695,33 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   async function applyMergeGroups(groups: Collection[][]) {
     let mergedCount = 0;
+    let failedCount = 0;
     for (const group of groups) {
       const target = group.reduce((best, b) => (countOf(b.id) > countOf(best.id) ? b : best), group[0]);
-      const sourceIds = group.filter((b) => b.id !== target.id).map((b) => b.id);
+      const sources = group.filter((b) => b.id !== target.id);
+      const sourceIds = sources.map((b) => b.id);
       const affected = items.filter((item) => item.collection_id && sourceIds.includes(item.collection_id));
       setItems((p) => p.map((item) => item.collection_id && sourceIds.includes(item.collection_id) ? { ...item, collection_id: target.id } : item));
       setCollections((p) => p.filter((c) => !sourceIds.includes(c.id)));
       if (sourceIds.includes(active)) setActive(target.id);
-      await Promise.all(affected.map((item) => fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collectionId: target.id }) })));
-      await Promise.all(sourceIds.map((id) => fetch(`/api/collections/${id}`, { method: 'DELETE' })));
-      mergedCount += sourceIds.length;
+
+      const [itemResults, boardResults] = await Promise.all([
+        Promise.all(affected.map((item) => fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collectionId: target.id }) }).then((res) => res.ok).catch(() => false))),
+        Promise.all(sourceIds.map((id) => fetch(`/api/collections/${id}`, { method: 'DELETE' }).then((res) => res.ok).catch(() => false))),
+      ]);
+      const failedBoards = sources.filter((_, index) => !boardResults[index]);
+      if (failedBoards.length) setCollections((p) => [...p, ...failedBoards]);
+      const failedItems = affected.filter((_, index) => !itemResults[index]);
+      if (failedItems.length) {
+        const originalCollectionOf = new Map(failedItems.map((item) => [item.id, item.collection_id]));
+        setItems((p) => p.map((item) => originalCollectionOf.has(item.id) ? { ...item, collection_id: originalCollectionOf.get(item.id)! } : item));
+      }
+      failedCount += failedBoards.length;
+      mergedCount += sourceIds.length - failedBoards.length;
     }
     collectionCreationRef.current.clear();
     setSelected(new Set());
-    say(`Объединено бордов: ${mergedCount}`);
+    say(failedCount ? `Объединено бордов: ${mergedCount}, не удалось: ${failedCount}` : `Объединено бордов: ${mergedCount}`);
   }
 
   // Загрузка в проект без выбранного борда обязана сразу дать карточке
@@ -688,13 +735,13 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     let creation = collectionCreationRef.current.get(key);
     if (!creation) {
       creation = (async () => {
+        // Быстрый путь — если уже видим борд в текущем состоянии, не ходим на
+        // сервер. Но сама гарантия "не создать второй борд" держится не на этой
+        // проверке (она не защищает от гонки между вкладками), а на атомарном
+        // INSERT ... WHERE NOT EXISTS внутри самого эндпоинта.
         const existingBoard = collections.find((c) => c.project_id === projectId);
         if (existingBoard) return existingBoard;
-        const colors = ['#C6F04A', '#FFB86B', '#87CEEB', '#D6B4FC', '#FF8F8F'];
-        const res = await fetch('/api/collections', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name: 'Board 1', color: colors[collections.length % colors.length], projectId }),
-        });
+        const res = await fetch(`/api/projects/${projectId}/default-board`, { method: 'POST' });
         if (!res.ok) throw new Error('default board create failed');
         return res.json() as Promise<Collection>;
       })();
@@ -947,13 +994,23 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   async function archiveItem(item: Item) {
     setItems((current) => current.map((value) => value.id === item.id ? { ...value, archived_at: new Date().toISOString() } : value));
     setDisposing(null);
-    await fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ archived: true }) });
+    const response = await fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ archived: true }) });
+    if (!response.ok) {
+      setItems((current) => current.map((value) => value.id === item.id ? { ...value, archived_at: item.archived_at } : value));
+      say('Не удалось архивировать карточку');
+      return;
+    }
     say('Карточка в архиве на 30 дней');
   }
 
   async function restoreItem(item: Item) {
     setItems((current) => current.map((value) => value.id === item.id ? { ...value, archived_at: null } : value));
-    await fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ archived: false }) });
+    const response = await fetch(`/api/items/${item.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ archived: false }) });
+    if (!response.ok) {
+      setItems((current) => current.map((value) => value.id === item.id ? { ...value, archived_at: item.archived_at } : value));
+      say('Не удалось восстановить карточку');
+      return;
+    }
     say('Карточка восстановлена');
   }
 
@@ -979,6 +1036,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name, color, accessMode, projectId }),
       });
+      if (!res.ok) return say((await res.json().catch(() => null))?.error || 'Не удалось создать борд');
       const c: Collection = await res.json();
       setCollections((p) => [...p, c]);
       setActive('all');
@@ -989,6 +1047,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name, color, accessMode, projectId }),
       });
+      if (!res.ok) return say((await res.json().catch(() => null))?.error || 'Не удалось сохранить борд');
       const updated: Collection = await res.json();
       setCollections((p) => p.map((c) => (c.id === id ? updated : c)));
     }
@@ -1057,13 +1116,24 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   async function deleteProject(project: Project) {
     // Удаление проекта каскадно сносит все его борды и все карточки в них.
     const boardIds = new Set(collections.filter((c) => c.project_id === project.id).map((c) => c.id));
+    const removedCollections = collections.filter((c) => c.project_id === project.id);
+    const removedItems = items.filter((item) => !!item.collection_id && boardIds.has(item.collection_id));
+    const wasActiveProject = activeProject === project.id;
+    const wasActiveBoard = boardIds.has(active);
     setProjects((current) => current.filter((value) => value.id !== project.id));
     setCollections((current) => current.filter((value) => value.project_id !== project.id));
     setItems((current) => current.filter((item) => !item.collection_id || !boardIds.has(item.collection_id)));
-    if (activeProject === project.id) setActiveProject('all');
-    if (boardIds.has(active)) setActive('all');
+    if (wasActiveProject) setActiveProject('all');
+    if (wasActiveBoard) setActive('all');
     setProjectModal(null);
-    await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
+    const response = await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
+    if (!response.ok) {
+      setProjects((current) => [...current, project]);
+      setCollections((current) => [...current, ...removedCollections]);
+      setItems((current) => [...current, ...removedItems]);
+      if (wasActiveProject) setActiveProject(project.id);
+      say('Не удалось удалить проект');
+    }
   }
 
   // Сайдбар показывает борды только одного контекста за раз (текущий проект
@@ -1102,6 +1172,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     try {
       const resized = await shrink(file, 512, .86);
       const signedResponse = await fetch('/api/upload-url', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ext: 'webp', contentType: 'image/webp', withThumb: false }) });
+      if (!signedResponse.ok) throw new Error();
       const signed = await signedResponse.json();
       const uploadResponse = await fetch(signed.putUrl, { method: 'PUT', headers: { 'content-type': 'image/webp' }, body: resized.blob });
       if (!uploadResponse.ok) throw new Error();
@@ -1115,6 +1186,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     try {
       const resized = await shrink(file, 1600, .86);
       const signedResponse = await fetch('/api/upload-url', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ext: 'webp', contentType: 'image/webp', withThumb: false }) });
+      if (!signedResponse.ok) throw new Error();
       const signed = await signedResponse.json();
       const uploadResponse = await fetch(signed.putUrl, { method: 'PUT', headers: { 'content-type': 'image/webp' }, body: resized.blob });
       if (!uploadResponse.ok) throw new Error();
@@ -1128,12 +1200,20 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   async function deleteCollection(c: Collection) {
     // Удаление борда каскадно сносит все его карточки.
+    const removedItems = items.filter((i) => i.collection_id === c.id);
+    const wasActive = active === c.id;
     setCollections((p) => p.filter((x) => x.id !== c.id));
     setItems((p) => p.filter((i) => i.collection_id !== c.id));
     collectionCreationRef.current.clear();
-    if (active === c.id) setActive('all');
+    if (wasActive) setActive('all');
     setCollModal(null);
-    await fetch(`/api/collections/${c.id}`, { method: 'DELETE' });
+    const response = await fetch(`/api/collections/${c.id}`, { method: 'DELETE' });
+    if (!response.ok) {
+      setCollections((p) => [...p, c]);
+      setItems((p) => [...p, ...removedItems]);
+      if (wasActive) setActive(c.id);
+      say('Не удалось удалить борд');
+    }
   }
 
   /* ---------------- ввод ---------------- */
