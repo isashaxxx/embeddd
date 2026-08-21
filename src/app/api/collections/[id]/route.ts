@@ -39,9 +39,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
     await sql`update collections set project_id = ${target} where id = ${id}`;
   }
-  if (accessMode !== undefined && accessMode !== 'private' && accessMode !== 'link') {
-    return NextResponse.json({ error: 'Некорректный режим доступа' }, { status: 400 });
-  }
+  if (accessMode !== undefined && accessMode !== 'private' && accessMode !== 'link') return NextResponse.json({ error: 'Некорректный режим доступа' }, { status: 400 });
   if (accessMode === 'private') await sql`update collections set access_mode = 'private', share_token = null where id = ${id}`;
   if (accessMode === 'link') await sql`update collections set access_mode = 'link', share_token = coalesce(share_token, ${crypto.randomUUID().replaceAll('-', '')}) where id = ${id}`;
 
@@ -52,11 +50,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const sql = db();
-  const items = (await sql`select r2_key, r2_thumb_key from items where collection_id = ${id}`) as unknown as { r2_key: string | null; r2_thumb_key: string | null }[];
-  const deleted = (await sql`delete from collections where id = ${id} returning id`) as unknown as { id: string }[];
-  if (!deleted.length) return NextResponse.json({ error: 'Борд не найден' }, { status: 404 });
-  // FK ON DELETE SET NULL сохраняет карточки, поэтому удаляем их явно после получения ключей.
-  await sql`delete from items where collection_id is null and id in (select id from items where collection_id is null)`;
+  const items = (await sql`select id, r2_key, r2_thumb_key from items where collection_id = ${id}`) as unknown as { id: string; r2_key: string | null; r2_thumb_key: string | null }[];
+  const exists = (await sql`select id from collections where id = ${id} limit 1`) as unknown as { id: string }[];
+  if (!exists.length) return NextResponse.json({ error: 'Борд не найден' }, { status: 404 });
+
+  // Удаляем карточки до борда, чтобы ON DELETE SET NULL не превращал их в сирот.
+  await sql`delete from items where collection_id = ${id}`;
+  await sql`delete from collections where id = ${id}`;
   await deleteKeys(items.flatMap((item) => [item.r2_key, item.r2_thumb_key]).filter(Boolean) as string[]).catch(() => {});
   return NextResponse.json({ ok: true });
 }
