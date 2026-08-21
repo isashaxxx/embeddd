@@ -1,20 +1,20 @@
 'use client';
 
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
-import { closestCenter, DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import type Muuri from 'muuri';
-import type { Account, ChecklistItem, Collection, Item, Progress, Project } from '@/lib/types';
+import type { Account, Active, Collection, Item, Progress, Project } from '@/lib/types';
 import { shrink, videoPreview, videoSize } from '@/lib/resize';
+import { plural } from '@/lib/format';
 import CalendarWidget from './widgets/CalendarWidget';
 import WeatherWidget from './widgets/WeatherWidget';
 import type { WidgetSettings } from './widgets/CalendarWidget';
+import Sidebar from './wall/Sidebar';
+import Topbar from './wall/Topbar';
+import ContainerTile from './wall/ContainerTile';
+import ElementDetail from './wall/ElementDetail';
+import Icon from './wall/Icon';
 
 type Props = { initialProjects: Project[]; initialCollections: Collection[]; initialItems: Item[]; initialActive?: string; initialProject?: string; initialPost?: string };
-type Active = 'all' | 'fav' | string;
 type NewElement = 'link' | 'text' | 'callout' | 'html' | 'widget_calendar' | 'widget_weather';
 type WidgetKind = 'widget_calendar' | 'widget_weather';
 type ElementSize = 'S' | 'M' | 'L' | 'XL';
@@ -119,19 +119,15 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [editing, setEditing] = useState<Item | null>(null);
   const [disposing, setDisposing] = useState<Item | null>(null);
   const [sizePicker, setSizePicker] = useState<Item | null>(null);
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
-  function toggleProjectExpanded(id: string) {
-    setCollapsedProjects((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
-  }
   const [bulkSizeOpen, setBulkSizeOpen] = useState(false);
   const [bulkSize, setBulkSize] = useState<ElementSize>('S');
   const [collModal, setCollModal] = useState<Collection | 'new' | null>(null);
   const [projectModal, setProjectModal] = useState<Project | 'new' | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ kind: 'board'; board: Collection } | { kind: 'project'; project: Project } | null>(null);
+  const [mergePreview, setMergePreview] = useState<Collection[][] | null>(null);
   const [activeProject, setActiveProject] = useState<string>(initialProject);
   const [lightbox, setLightbox] = useState<string | null>(() => initialPost ? initialItems.find((item) => item.slug === initialPost || item.id === initialPost)?.id || null : null);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [draggingBoard, setDraggingBoard] = useState<string | null>(null);
   const [upload, setUpload] = useState<{ done: number; total: number; label: string } | null>(null);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -143,18 +139,12 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const [accountOpen, setAccountOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [elementMenu, setElementMenu] = useState(false);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [publishMenuOpen, setPublishMenuOpen] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectSaveState, setProjectSaveState] = useState<'idle' | 'saving'>('idle');
   const [newElement, setNewElement] = useState<NewElement | null>(null);
   const [contentTab, setContentTab] = useState<'all' | 'boards' | 'items'>('all');
-  const boardSensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
   const [aiRunning, setAiRunning] = useState<string[]>([]);
   const [aiMode, setAiMode] = useState<AiMode>('auto');
   const [aiCardPercent, setAiCardPercent] = useState(0);
@@ -176,7 +166,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const fileRef = useRef<HTMLInputElement>(null);
   const avatarRef = useRef<HTMLInputElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
-  const topSearchRef = useRef<HTMLDivElement>(null);
   const dragResetTimer = useRef<number | null>(null);
   // The window "drop" listener is registered once (see the mount-only
   // effect below) so it doesn't thrash on every render — but that means
@@ -290,7 +279,10 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   const projectCollectionIds = new Set(projectCollections.map((c) => c.id));
   const visible = items.filter((i) => {
     const inSection = active === 'archive' ? !!i.archived_at : active === 'projects' ? false : !i.archived_at && (active === 'all' ? true : active === 'fav' ? i.fav : i.collection_id === active);
-    const inProject = activeProject === 'all' || (!!i.collection_id && projectCollectionIds.has(i.collection_id));
+    // Избранное и Архив — глобальные разделы (как и их счётчики в countOf ниже):
+    // видны из любого проекта, не только "без проекта", иначе выбранный в свитчере
+    // проект молча прячет из них карточки из других проектов.
+    const inProject = active === 'fav' || active === 'archive' || activeProject === 'all' || (!!i.collection_id && projectCollectionIds.has(i.collection_id));
     const haystack = `${i.title} ${i.note} ${(i.tags || []).join(' ')}`.toLocaleLowerCase();
     return inSection && inProject && (!selectedTag || i.tags?.includes(selectedTag)) && (!search.trim() || haystack.includes(search.trim().toLocaleLowerCase()));
   });
@@ -304,36 +296,26 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     .sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0))
     .slice(0, 4);
 
-  const feedEntries: ({ type: 'item'; value: Item } | { type: 'collection'; value: Collection })[] = active === 'all'
-    ? [
-        ...(!projectRootView || contentTab !== 'boards' ? visible.map((value) => ({ type: 'item' as const, value })) : []),
-        ...(!selectedTag && (!projectRootView || contentTab !== 'items') ? projectCollections.map((value) => ({ type: 'collection' as const, value })) : []),
-      ].sort((a, b) => {
-        const aTime = a.value.created_at ? new Date(a.value.created_at).getTime() : a.value.id.startsWith('temp-') ? Date.now() : 0;
-        const bTime = b.value.created_at ? new Date(b.value.created_at).getTime() : b.value.id.startsWith('temp-') ? Date.now() : 0;
+  // Борды и карточки — два разных объекта (контейнер и лист), больше не смешиваются
+  // в одну ленту по дате: борды идут отдельной полосой (boardStripBody), здесь только
+  // карточки. showBoardStrip/showItemsGrid воспроизводят те же условия видимости,
+  // что раньше решали, какие записи попадут в общий отсортированный массив.
+  const feedItems = active === 'all'
+    ? [...visible].sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : a.id.startsWith('temp-') ? Date.now() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : b.id.startsWith('temp-') ? Date.now() : 0;
         return feedOrder === 'newest' ? bTime - aTime : aTime - bTime;
       })
-    : visible.map((value) => ({ type: 'item' as const, value }));
+    : visible;
+  const showBoardStrip = active === 'all' && !selectedTag && (!projectRootView || contentTab !== 'items') && !!projectCollections.length;
+  const showItemsGrid = active !== 'all' || !projectRootView || contentTab !== 'boards';
 
   const countOf = (id: Active) =>
     id === 'all' ? items.filter((i) => !i.archived_at).length : id === 'fav' ? items.filter((i) => i.fav && !i.archived_at).length : id === 'archive' ? items.filter((i) => i.archived_at).length : items.filter((i) => i.collection_id === id && !i.archived_at).length;
 
-  const targetCollection = () => (active === 'all' || active === 'fav' || active === 'projects' ? null : active);
+  const targetCollection = () => (active === 'all' || active === 'fav' || active === 'archive' || active === 'projects' ? null : active);
 
-  const gridSignature = projectsGalleryView
-    ? projects.map((project) => `project:${project.id}`).join('|')
-    : feedEntries.map((entry) => entry.type === 'item'
-        ? `${entry.value.id}:${isBlock(entry.value) ? elementSize(entry.value.display_size) : 'pin'}`
-        : `board:${entry.value.id}`).join('|');
-
-  useEffect(() => {
-    if (!searchOpen) return;
-    const close = (event: PointerEvent) => {
-      if (!topSearchRef.current?.contains(event.target as Node)) { setSearchOpen(false); setSearch(''); }
-    };
-    document.addEventListener('pointerdown', close);
-    return () => document.removeEventListener('pointerdown', close);
-  }, [searchOpen]);
+  const gridSignature = feedItems.map((item) => `${item.id}:${isBlock(item) ? elementSize(item.display_size) : 'pin'}`).join('|');
 
   useEffect(() => {
     const grid = gridRef.current;
@@ -370,7 +352,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         dragEnabled: moveMode,
         dragHandle: null,
         dragStartPredicate: (item, event) => {
-          if (item.getElement()?.classList.contains('collection-board-item')) return false;
           const target = event.target as HTMLElement | null;
           if (target?.closest('button, select, input, textarea, a, iframe, video, .resize')) return false;
           return MuuriGrid.ItemDrag.defaultStartPredicate(item, event, { distance: 5, delay: 0 });
@@ -461,6 +442,20 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       muuriRef.current = null;
     };
   }, [gridSignature, moveMode]);
+
+  // Клавиатурная/скринридерная альтернатива перетаскиванию мышью: переставляет
+  // карточку на одну позицию в пределах её борда и пишет тот же порядок, что
+  // отправил бы Muuri после drag&drop.
+  function moveItemBy(item: Item, delta: -1 | 1) {
+    const list = items.filter((value) => value.collection_id === item.collection_id && !value.archived_at).sort((a, b) => Number(a.position) - Number(b.position));
+    const index = list.findIndex((value) => value.id === item.id);
+    const targetIndex = index + delta;
+    if (index < 0 || targetIndex < 0 || targetIndex >= list.length) return;
+    const order = [...list];
+    const [moved] = order.splice(index, 1);
+    order.splice(targetIndex, 0, moved);
+    persistGridOrder(order.map((value) => value.id));
+  }
 
   function persistGridOrder(ids: string[]) {
     const orderedSet = new Set(ids);
@@ -623,10 +618,12 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     return [...freq].sort((a, b) => b[1] - a[1]).slice(0, n).map(([tag]) => tag);
   }
 
-  async function autoMergeSimilarBoards() {
+  // Считает кластеры похожих бордов, но ничего не меняет — результат идёт
+  // в модалку предпросмотра, применяет его только applyMergeGroups после
+  // явного подтверждения (транзитивное объединение по цепочке пар иначе
+  // может незаметно слить борды, у которых на самом деле нет ничего общего).
+  function computeMergeGroups(): Collection[][] {
     const scope = projectCollections;
-    if (scope.length < 2) return say('Недостаточно бордов для объединения');
-
     const parent = new Map(scope.map((b) => [b.id, b.id]));
     const find = (id: string): string => {
       const p = parent.get(id)!;
@@ -652,9 +649,17 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
     const clusters = new Map<string, Collection[]>();
     scope.forEach((board) => { const root = find(board.id); clusters.set(root, [...(clusters.get(root) || []), board]); });
-    const groups = [...clusters.values()].filter((group) => group.length > 1);
-    if (!groups.length) return say('Похожих бордов не найдено');
+    return [...clusters.values()].filter((group) => group.length > 1);
+  }
 
+  function autoMergeSimilarBoards() {
+    if (projectCollections.length < 2) return say('Недостаточно бордов для объединения');
+    const groups = computeMergeGroups();
+    if (!groups.length) return say('Похожих бордов не найдено');
+    setMergePreview(groups);
+  }
+
+  async function applyMergeGroups(groups: Collection[][]) {
     let mergedCount = 0;
     for (const group of groups) {
       const target = group.reduce((best, b) => (countOf(b.id) > countOf(best.id) ? b : best), group[0]);
@@ -861,8 +866,12 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           if (!thumbUpload.ok) throw new Error(`Не загрузилось превью (${thumbUpload.status})`);
         }
 
-        const contentHash = body.size <= 64 * 1024 * 1024
-          ? [...new Uint8Array(await crypto.subtle.digest('SHA-256', await body.arrayBuffer()))].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+        // Хэш считаем от исходного файла, а не от пережатых байт: canvas
+        // переэнкодит webp по-разному в разных браузерах даже для одной и
+        // той же картинки, так что хэш сжатой версии не ловит дубликат,
+        // загруженный второй раз с другого устройства/браузера.
+        const contentHash = file.size <= 64 * 1024 * 1024
+          ? [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))].map((byte) => byte.toString(16).padStart(2, '0')).join('')
           : null;
         const res = await fetch('/api/items', {
           method: 'POST',
@@ -895,12 +904,27 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   useEffect(() => { addFilesRef.current = addFiles; });
 
   async function patch(id: string, data: Partial<Record<string, unknown>>) {
-    setItems((p) => p.map((i) => (i.id === id ? ({ ...i, ...camelToSnake(data) } as Item) : i)));
-    await fetch(`/api/items/${id}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(data),
-    });
+    const snakeData = camelToSnake(data);
+    let previous: Partial<Item> | null = null;
+    setItems((p) => p.map((i) => {
+      if (i.id !== id) return i;
+      previous = Object.fromEntries(Object.keys(snakeData).map((key) => [key, (i as unknown as Record<string, unknown>)[key]])) as Partial<Item>;
+      return { ...i, ...snakeData } as Item;
+    }));
+    try {
+      const response = await fetch(`/api/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error('patch failed');
+    } catch {
+      if (previous) {
+        const fields: Partial<Item> = previous;
+        setItems((p) => p.map((i) => (i.id === id ? ({ ...i, ...fields } as Item) : i)));
+      }
+      say('Не удалось сохранить изменения');
+    }
   }
 
   async function remove(item: Item) {
@@ -1003,11 +1027,22 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   }
 
   async function patchProject(id: string, data: Partial<{ name: string; color: string; description: string; accessMode: Project['access_mode'] }>) {
-    setProjects((current) => current.map((p) => p.id === id ? { ...p, ...data } : p));
+    let previous: Partial<Project> | null = null;
+    setProjects((current) => current.map((p) => {
+      if (p.id !== id) return p;
+      previous = Object.fromEntries(Object.keys(data).map((key) => [key, (p as unknown as Record<string, unknown>)[key]])) as Partial<Project>;
+      return { ...p, ...data };
+    }));
     const res = await fetch(`/api/projects/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
     if (res.ok) {
       const updated: Project = await res.json();
       setProjects((current) => current.map((p) => p.id === id ? updated : p));
+    } else {
+      if (previous) {
+        const fields: Partial<Project> = previous;
+        setProjects((current) => current.map((p) => (p.id === id ? { ...p, ...fields } : p)));
+      }
+      say('Не удалось сохранить изменения проекта');
     }
   }
 
@@ -1031,48 +1066,22 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
   }
 
-  async function moveBoardToProject(boardId: string, projectId: string | null) {
-    const board = collections.find((value) => value.id === boardId);
-    if (!board || board.project_id === projectId) return;
-    setCollections((current) => current.map((value) => value.id === boardId ? { ...value, project_id: projectId } : value));
-    const response = await fetch(`/api/collections/${boardId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) });
-    if (!response.ok) {
-      setCollections((current) => current.map((value) => value.id === boardId ? board : value));
-      say('Не удалось переместить борд');
-    } else say(projectId ? 'Борд перемещён в проект' : 'Борд вынесен из проекта');
-  }
-
-  async function finishBoardDrag(event: DragEndEvent) {
-    const boardId = String(event.active.id);
-    const over = event.over;
-    setDraggingBoard(null);
-    if (!over) return;
-    const targetContainer = String(over.data.current?.containerId || over.id).replace(/^container:/, '');
-    const targetProjectId = targetContainer === 'unassigned' ? null : targetContainer;
-    if (targetProjectId && !projects.some((project) => project.id === targetProjectId)) return;
-    const moving = collections.find((board) => board.id === boardId);
-    if (!moving) return;
-
-    const targetOriginal = boardsForProject(targetProjectId);
-    const sourceIndex = targetOriginal.findIndex((board) => board.id === boardId);
-    let insertAt = over.data.current?.type === 'board' ? targetOriginal.findIndex((board) => board.id === String(over.id)) : targetOriginal.length;
-    if (insertAt < 0) insertAt = targetOriginal.length;
-    if (sourceIndex >= 0 && sourceIndex < insertAt) insertAt--;
-    const ordered = targetOriginal.filter((board) => board.id !== boardId);
-    ordered.splice(Math.max(0, insertAt), 0, { ...moving, project_id: targetProjectId });
-    const positions = new Map(ordered.map((board, index) => [board.id, index]));
+  // Сайдбар показывает борды только одного контекста за раз (текущий проект
+  // либо "без проекта"), так что реордер — обычная сортировка одного списка,
+  // без кросс-контейнерного переноса между проектами (для этого есть явный
+  // выбор проекта в настройках борда).
+  async function reorderBoards(orderedIds: string[]) {
     const snapshot = collections;
-    const next = collections.map((board) => positions.has(board.id) ? { ...board, project_id: targetProjectId, position: positions.get(board.id)! } : board);
-    setCollections(next);
+    const positions = new Map(orderedIds.map((id, index) => [id, index]));
+    setCollections((current) => current.map((board) => positions.has(board.id) ? { ...board, position: positions.get(board.id)! } : board));
     try {
-      const responses = await Promise.all(ordered.map((board, position) => fetch(`/api/collections/${board.id}`, {
-        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: targetProjectId, position }),
+      const responses = await Promise.all(orderedIds.map((id, position) => fetch(`/api/collections/${id}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ position }),
       })));
       if (responses.some((response) => !response.ok)) throw new Error('board reorder failed');
-      say(moving.project_id === targetProjectId ? 'Порядок бордов сохранён' : targetProjectId ? 'Борд перемещён в проект' : 'Борд вынесен из проекта');
     } catch {
       setCollections(snapshot);
-      say('Не удалось сохранить перемещение');
+      say('Не удалось сохранить порядок бордов');
     }
   }
 
@@ -1139,7 +1148,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       if (/^https?:\/\/|^www\./i.test(txt)) { e.preventDefault(); addLink(txt); }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setProjectModal(null); setLightbox(null); setNewElement(null); setElementMenu(false); }
+      if (e.key === 'Escape') { setEditing(null); setCollModal(null); setProjectModal(null); setLightbox(null); setNewElement(null); setConfirmDelete(null); setMergePreview(null); }
     };
     document.addEventListener('paste', onPaste);
     document.addEventListener('keydown', onKey);
@@ -1188,10 +1197,22 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   /* ---------------- разметка ---------------- */
 
-  const title = active === 'all' ? (activeProject === 'all' ? 'Всё' : projects.find((project) => project.id === activeProject)?.name || 'Всё') : active === 'fav' ? 'Избранное' : active === 'projects' ? 'Мои проекты' : collections.find((c) => c.id === active)?.name ?? 'Всё';
+  const title = active === 'all' ? (activeProject === 'all' ? 'Всё' : projects.find((project) => project.id === activeProject)?.name || 'Всё') : active === 'fav' ? 'Избранное' : active === 'archive' ? 'Архив' : active === 'projects' ? 'Мои проекты' : collections.find((c) => c.id === active)?.name ?? 'Всё';
 
-  const cardRuntime = useRef({ selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, setSizePicker, moveMode });
-  cardRuntime.current = { selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, setSizePicker, moveMode };
+  // Хлебная крошка вместо голого h1 + отдельной "назад"-кнопки: показывает,
+  // где лежит текущий борд (в каком проекте), а не только его имя.
+  const activeBoard = active !== 'all' && active !== 'fav' && active !== 'archive' && active !== 'projects' ? collections.find((c) => c.id === active) : undefined;
+  const boardParentProject = activeBoard?.project_id ? projects.find((p) => p.id === activeBoard.project_id) : undefined;
+  const breadcrumb = projectRootView && currentProject
+    ? [{ label: 'Все проекты', onClick: () => { setActiveProject('all'); setActive('all'); } }, { label: currentProject.name }]
+    : activeBoard
+      ? (boardParentProject
+          ? [{ label: boardParentProject.name, onClick: () => { setActiveProject(boardParentProject.id); setActive('all'); } }, { label: activeBoard.name }]
+          : [{ label: activeBoard.name }])
+      : [{ label: title }];
+
+  const cardRuntime = useRef({ selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, setSizePicker, moveMode, moveItemBy });
+  cardRuntime.current = { selected, setSelected, setLightbox, patch, aiRunning, analyzeImage, setEditing, restoreItem, setDisposing, setSizePicker, moveMode, moveItemBy };
 
   // Keep the component type stable across Wall renders. Defining a regular
   // nested component here caused React to remount every video whenever account,
@@ -1219,7 +1240,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         }}
       >
         {item.kind === 'image' && (
-          <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb || item.src || ''} alt=""
+          <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb || item.src || ''} alt={item.title || item.note ? '' : (item.host || 'Изображение')}
             style={item.width && item.height ? { aspectRatio: `${item.width}/${item.height}` } : undefined} />
         )}
 
@@ -1230,7 +1251,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             style={item.ratio ? { aspectRatio: `${(100 / item.ratio).toFixed(4)}` } : { height: (item.embed_h || 480) + 'px' }}>
             {item.thumb && !playing ? (
               <>
-                <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb} alt=""
+                <img className={`media crop-${crop}`} draggable={false} loading="lazy" decoding="async" src={item.thumb} alt={item.title || item.note ? '' : (item.host || 'Превью')}
                   style={{ position: 'absolute', inset: 0, height: '100%', objectFit: 'cover' }} />
                 <button className="play" onClick={(e) => { e.stopPropagation(); setPlaying(true); }}><i /></button>
               </>
@@ -1290,6 +1311,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         </button>
 
         <div className="tools">
+          {runtime.moveMode && <button aria-label="Переместить выше" title="Переместить выше" onClick={(e) => { e.stopPropagation(); runtime.moveItemBy(item, -1); }}>↑</button>}
+          {runtime.moveMode && <button aria-label="Переместить ниже" title="Переместить ниже" onClick={(e) => { e.stopPropagation(); runtime.moveItemBy(item, 1); }}>↓</button>}
           {item.kind === 'image' && <button className="ai-tool" aria-label="Проанализировать изображение" title="Проанализировать изображение" disabled={runtime.aiRunning.includes(item.id)} onClick={(e) => { e.stopPropagation(); runtime.analyzeImage(item, true); }}>{runtime.aiRunning.includes(item.id) ? '…' : 'AI'}</button>}
           {isBlock(item) && <button className="size-tool" aria-label="Размер элемента" title="Размер элемента" onClick={(e) => { e.stopPropagation(); runtime.setSizePicker(item); }}>{size}</button>}
           {item.url && <button aria-label="Открыть оригинал" onClick={(e) => { e.stopPropagation(); window.open(item.url!, '_blank', 'noopener'); }}>↗</button>}
@@ -1320,52 +1343,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   const gridBody = (
     <div ref={gridRef} className="grid">
-      {projectsGalleryView ? projects.map((project) => {
-        const boardCount = boardsForProject(project.id).length;
-        const boardIds = new Set(boardsForProject(project.id).map((b) => b.id));
-        const covers = items.filter((item) => !item.archived_at && item.collection_id && boardIds.has(item.collection_id) && (item.thumb || item.src)).slice(0, 3);
-        const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
-        return <div key={project.id} className="grid-item collection-board-item" data-card-id={`project-${project.id}`} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
-          <div className="grid-item-content collection-board">
-            <button className="board-open" aria-label={`Открыть ${project.name}`} onClick={() => { setActiveProject(project.id); setActive('all'); }} />
-            <span className="board-covers">
-              {project.cover_url ? <img className="board-cover cover-1" src={project.cover_url} alt="" loading="lazy" />
-                : covers.length ? covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)
-                : <span className="board-empty" style={{ background: project.color }} />}
-            </span>
-            <strong>{project.name}</strong>
-            <small>{boardCount} {plural(boardCount, 'борд', 'борда', 'бордов')}</small>
-            <button className="board-menu" aria-label="Настройки проекта" onClick={() => setProjectModal(project)}>•••</button>
-          </div>
-        </div>;
-      }) : feedEntries.map((entry) => {
-        if (entry.type === 'collection') {
-          const collection = entry.value;
-        const covers = items.filter((item) => item.collection_id === collection.id && (item.thumb || item.src)).slice(0, 3);
-        const itemWidth = gridMetrics.width ? gridMetrics.width / gridMetrics.columns : 0;
-        const boardKey = `board:${collection.id}`;
-        return <div key={`board-${collection.id}`} className="grid-item collection-board-item" data-card-id={boardKey} style={itemWidth ? { width: `${itemWidth}px` } : undefined}>
-          <div className={'grid-item-content collection-board' + (selected.has(boardKey) ? ' selected' : '')}>
-            <button className="board-open" aria-label={`Открыть ${collection.name}`} onClick={(e) => {
-              if (e.metaKey || e.ctrlKey || e.shiftKey || selected.size) {
-                e.stopPropagation();
-                setSelected((current) => { const next = new Set(current); next.has(boardKey) ? next.delete(boardKey) : next.add(boardKey); return next; });
-                return;
-              }
-              setActive(collection.id);
-            }} />
-            <span className="board-covers">
-              {covers.map((cover, index) => <img key={cover.id} className={`board-cover cover-${index + 1}`} src={cover.thumb || cover.src || ''} alt="" loading="lazy" />)}
-              {!covers.length && <span className="board-empty" style={{ background: collection.color }} />}
-              {collection.access_mode !== 'link' && <span className="board-lock" aria-label="Закрытая коллекция">🔒</span>}
-            </span>
-            <strong>{collection.name}</strong>
-            <small>{countOf(collection.id)} {plural(countOf(collection.id), 'элемент', 'элемента', 'элементов')}</small>
-            <button className="board-menu" aria-label="Редактировать коллекцию" onClick={() => setCollModal(collection)}>•••</button>
-          </div>
-        </div>;
-        }
-        const it = entry.value;
+      {feedItems.map((it) => {
         const blockSpan = isBlock(it) ? elementSize(it.display_size) === 'XL' ? gridMetrics.columns : elementSize(it.display_size) === 'L' ? 3 : elementSize(it.display_size) === 'M' ? 2 : 1 : 1;
         const span = Math.min(blockSpan, gridMetrics.columns);
         const itemWidth = gridMetrics.width ? gridMetrics.width * span / gridMetrics.columns : 0;
@@ -1375,12 +1353,56 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       })}
     </div>
   );
+
+  // Полоса бордов — всегда контейнеры, никогда не смешивается с карточками
+  // в одной сетке. Обычная CSS-сетка, не Muuri: обложки бордов — фиксированного
+  // соотношения сторон, им не нужна JS-раскладка масонри.
+  const boardStripBody = (
+    <>
+    <div className="board-strip-label">Борды</div>
+    <div className="board-strip">
+      {projectCollections.map((collection) => {
+        const covers = items.filter((item) => item.collection_id === collection.id && (item.thumb || item.src)).slice(0, 3).map((item) => ({ id: item.id, src: item.thumb || item.src || '' }));
+        const boardKey = `board:${collection.id}`;
+        return <ContainerTile key={collection.id}
+          name={collection.name} color={collection.color} covers={covers}
+          locked={collection.access_mode !== 'link'} selected={selected.has(boardKey)}
+          metaLabel={`${countOf(collection.id)} ${plural(countOf(collection.id), 'элемент', 'элемента', 'элементов')}`}
+          settingsLabel="Редактировать коллекцию" onSettings={() => setCollModal(collection)}
+          onOpen={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || selected.size) {
+              e.stopPropagation();
+              setSelected((current) => { const next = new Set(current); next.has(boardKey) ? next.delete(boardKey) : next.add(boardKey); return next; });
+              return;
+            }
+            setActive(collection.id);
+          }} />;
+      })}
+    </div>
+    </>
+  );
+
+  const projectGalleryBody = (
+    <div className="board-strip">
+      {projects.map((project) => {
+        const boardCount = boardsForProject(project.id).length;
+        const boardIds = new Set(boardsForProject(project.id).map((b) => b.id));
+        const covers = items.filter((item) => !item.archived_at && item.collection_id && boardIds.has(item.collection_id) && (item.thumb || item.src)).slice(0, 3).map((item) => ({ id: item.id, src: item.thumb || item.src || '' }));
+        return <ContainerTile key={project.id}
+          name={project.name} color={project.color} coverUrl={project.cover_url} covers={covers}
+          metaLabel={`${boardCount} ${plural(boardCount, 'борд', 'борда', 'бордов')}`}
+          settingsLabel="Настройки проекта" onSettings={() => setProjectModal(project)}
+          onOpen={() => { setActiveProject(project.id); setActive('all'); }} />;
+      })}
+    </div>
+  );
+
   const emptyBody = projectsGalleryView ? (!projects.length && (
     <div className="empty">
       <h2>Пока нет проектов.</h2>
       <p>Нажми «+» рядом с «Мои проекты» в меню слева, чтобы создать первый.</p>
     </div>
-  )) : !visible.length && !(active === 'all' && collections.length) && (
+  )) : !visible.length && !showBoardStrip && (
     <div className="empty">
       <h2>Пусто. Кидай сюда всё.</h2>
       <p>Нажми «+ Элемент», перетащи файлы в окно или просто вставь ссылку через <kbd>⌘V</kbd>.</p>
@@ -1392,7 +1414,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       <button className="feed-sort-btn" aria-expanded={sortMenuOpen} onClick={() => setSortMenuOpen((v) => !v)}>{feedOrder === 'newest' ? 'Сначала новые' : 'Сначала старые'}<Icon name="chevron" /></button>
       {sortMenuOpen && <>
         <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setSortMenuOpen(false)} />
-        <div className="sort-menu feed-sort-menu">
+        <div className="popover sort-menu feed-sort-menu">
           <button className={feedOrder === 'newest' ? 'on' : ''} onClick={() => { setFeedOrder('newest'); setSortMenuOpen(false); }}><Icon name="check" />Сначала новые</button>
           <button className={feedOrder === 'oldest' ? 'on' : ''} onClick={() => { setFeedOrder('oldest'); setSortMenuOpen(false); }}><Icon name="check" />Сначала старые</button>
         </div>
@@ -1402,102 +1424,54 @@ export default function Wall({ initialProjects, initialCollections, initialItems
 
   return (
     <div className={'app' + (moveMode ? ' move-mode' : '')}>
-      <aside className={'sidebar' + (menuOpen ? ' open' : '') + (sidebarCollapsed ? ' collapsed' : '')}>
-        <div className="sidebar-head">
-          <button className="brand brand-home" aria-label="На главную" data-tooltip="embeddd" onClick={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}><img className="brand-mark" src="/logo.svg" alt="" /><b>embeddd</b></button>
-          <button className="sidebar-collapse" aria-label={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'} title={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'} onClick={toggleSidebarCollapsed}>{sidebarCollapsed ? '»' : '«'}</button>
-        </div>
-        <div className="nav">
-          {activeProject !== 'all' ? <>
-            <div className="project-workspace">
-              <button aria-label="Все проекты" onClick={() => { setActiveProject('all'); setActive('all'); }}><Icon name="back" /></button>
-              <div><b>{projects.find((project) => project.id === activeProject)?.name}</b><small>{projectCollections.length} {plural(projectCollections.length, 'борд', 'борда', 'бордов')}</small></div>
-              <button aria-label="Настройки проекта" onClick={() => { const project = projects.find((value) => value.id === activeProject); if (project) setProjectModal(project); }}><Icon name="settings" /></button>
-            </div>
-            <div className="nav-label figma-pages"><span>Борды</span><div className="nav-label-actions"><button aria-label="Объединить похожие борды" title="Объединить похожие борды" onClick={() => void autoMergeSimilarBoards()}><Icon name="merge" /></button><button aria-label="Новый борд" onClick={() => setCollModal('new')}><Icon name="plus" /></button></div></div>
-            {projectCollections.map((c) => <NavRow key={c.id} id={c.id} name={c.name} color={c.color} count={countOf(c.id)} coll={c} />)}
-            {!projectCollections.length && <div className="nav-empty">Пока нет бордов</div>}
-          </> : <>
-            <DndContext sensors={boardSensors} collisionDetection={closestCenter} onDragStart={(event) => setDraggingBoard(String(event.active.id))} onDragCancel={() => setDraggingBoard(null)} onDragEnd={(event) => void finishBoardDrag(event)}>
-            {!!projects.length && <>
-              <div className="nav-label figma-pages"><span>Мои проекты</span><button aria-label="Новый проект" onClick={() => setProjectModal('new')}><Icon name="plus" /></button></div>
-              {projects.map((project) => { const projectBoards = boardsForProject(project.id); const expanded = !collapsedProjects.has(project.id); return <BoardDropZone key={project.id} id={project.id}>
-                <button className="project-row project-heading" data-tooltip={project.name} onClick={() => { setActiveProject(project.id); setActive('all'); }}>
-                  <Icon name="folder" /><b>{project.name}</b>
-                  <i className={'project-heading-toggle' + (expanded ? '' : ' is-collapsed')} aria-label={expanded ? 'Свернуть проект' : 'Развернуть проект'} onClick={(event) => { event.stopPropagation(); toggleProjectExpanded(project.id); }}><Icon name="chevron" /></i>
-                  <i onClick={(event) => { event.stopPropagation(); setProjectModal(project); }}>•••</i>
-                </button>
-                {expanded && <SortableContext items={projectBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}><div className="project-tree-boards">{projectBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</div></SortableContext>}
-              </BoardDropZone>; })}
-            </>}
-            <div className="nav-label figma-pages"><span>Мои борды</span><div className="nav-label-actions"><button aria-label="Объединить похожие борды" title="Объединить похожие борды" onClick={() => void autoMergeSimilarBoards()}><Icon name="merge" /></button><button aria-label="Новый борд" onClick={() => setCollModal('new')}><Icon name="plus" /></button></div></div>
-            <BoardDropZone id="unassigned"><SortableContext items={unassignedBoards.map((board) => board.id)} strategy={verticalListSortingStrategy}>{unassignedBoards.map((board) => <SortableBoardRow key={board.id} board={board} active={active === board.id} count={countOf(board.id)} onOpen={() => { setActive(board.id); setMenuOpen(false); }} onEdit={() => setCollModal(board)} />)}</SortableContext></BoardDropZone>
-            <DragOverlay dropAnimation={{ duration: 160, easing: 'ease-out' }}>{draggingBoard ? <BoardRowVisual board={collections.find((board) => board.id === draggingBoard)!} count={countOf(draggingBoard)} overlay /> : null}</DragOverlay>
-            </DndContext>
-            <NavRow id="all" name="Всё" count={countOf('all')} icon="home" />
-            <NavRow id="fav" name="Избранное" count={countOf('fav')} icon="favorite" />
-            <NavRow id="archive" name="Архив" count={countOf('archive')} icon="archive" />
-          </>}
-        </div>
-      </aside>
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        mobileOpen={menuOpen}
+        onToggleCollapsed={toggleSidebarCollapsed}
+        onCloseMobile={() => setMenuOpen(false)}
+        onGoHome={() => { setActiveProject('all'); setActive('all'); setSelectedTag(null); setSearch(''); setMenuOpen(false); }}
+        active={active}
+        onSelectActive={setActive}
+        countAll={countOf('all')}
+        countFav={countOf('fav')}
+        countArchive={countOf('archive')}
+        projects={projects}
+        activeProject={activeProject}
+        onSelectProject={(id) => { setActiveProject(id); setActive('all'); }}
+        onNewProject={() => setProjectModal('new')}
+        onEditProject={(project) => setProjectModal(project)}
+        onOpenProjectGallery={() => { setActiveProject('all'); setActive('projects'); setMenuOpen(false); }}
+        boards={activeProject === 'all' ? unassignedBoards : projectCollections}
+        countOfBoard={countOf}
+        onNewBoard={() => setCollModal('new')}
+        onEditBoard={(board) => setCollModal(board)}
+        onMergeSimilar={() => void autoMergeSimilarBoards()}
+        onReorderBoards={(ids) => void reorderBoards(ids)}
+        account={account}
+        moveMode={moveMode}
+        onToggleMoveMode={() => setMoveMode((v) => !v)}
+        onOpenAccountSettings={() => setAccountOpen(true)}
+        onLogout={logout}
+      />
 
       <main className="main">
-        <header className="topbar">
-          <button className="btn ghost menu-btn" aria-label="Открыть коллекции" onClick={() => setMenuOpen((v) => !v)}>☰</button>
-          <div className="title-wrap">
-            {projectRootView
-              ? <button className="topbar-back" onClick={() => { setActiveProject('all'); setActive('all'); }}><Icon name="back" /> Все проекты</button>
-              : <><h1>{title}</h1><p>{selectedTag ? `#${selectedTag} · ` : ''}{visible.length} {plural(visible.length, 'карточка', 'карточки', 'карточек')}</p></>}
-          </div>
-          {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
-          <div ref={topSearchRef} className={'top-search' + (searchOpen ? ' open' : '')}>{searchOpen && <input autoFocus value={search} placeholder="Поиск" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />}<button className="icon-control" aria-label="Поиск" title="Поиск" onClick={() => { if (searchOpen && search) setSearch(''); else setSearchOpen((value) => !value); }}><Icon name={searchOpen && search ? 'close' : 'search'} /></button></div>
-          <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'} disabled={progress?.aiCredits === 0}
-            aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} title={progress?.aiCredits === 0 ? 'Кредиты закончились' : undefined} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span><small className="ai-credit-tooltip">Осталось {progress?.aiCredits ?? '…'} кредитов</small></button>
-          {progress?.aiCredits === 0 && <button className="btn ghost credits-topup" title="Начислить 100 AI-кредитов" onClick={() => void topUpCredits()}>+100 кредитов</button>}
-          <div className="add-element">
-            <button className="btn lime" aria-expanded={elementMenu} onClick={() => setElementMenu((v) => !v)}>＋ Элемент</button>
-            {elementMenu && <>
-              <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setElementMenu(false)} />
-              <div className="element-menu">
-                <div className="element-menu-label">Добавить на стену</div>
-                <button onClick={() => { setElementMenu(false); fileRef.current?.click(); }}><b>▧</b><span>Фото или видео<small>Загрузить с устройства</small></span></button>
-                <button onClick={() => { setElementMenu(false); setNewElement('link'); }}><b>↗</b><span>Ссылка / Embed<small>YouTube, Pinterest и сайты</small></span></button>
-                <i />
-                <button onClick={() => { setElementMenu(false); setNewElement('text'); }}><b>T</b><span>Текст<small>Заметка или описание</small></span></button>
-                <button onClick={() => { setElementMenu(false); setNewElement('callout'); }}><b>◉</b><span>Callout<small>Акцент с эмодзи</small></span></button>
-                <button onClick={() => { setElementMenu(false); setNewElement('html'); }}><b>&lt;/&gt;</b><span>HTML<small>Свой код в изолированном блоке</small></span></button>
-                <i />
-                <button onClick={() => { setElementMenu(false); setNewElement('widget_calendar'); }}><b>▦</b><span>Календарь<small>Живой виджет с текущей датой</small></span></button>
-                <button onClick={() => { setElementMenu(false); setNewElement('widget_weather'); }}><b>☀</b><span>Погода<small>Живой виджет по геолокации</small></span></button>
-              </div>
-            </>}
-          </div>
-          <input ref={fileRef} type="file" accept="image/*,video/*" multiple hidden
-            onChange={(e) => { addFiles([...(e.target.files || [])]); e.target.value = ''; }} />
-          <div className="account-control">
-            <button className="account-avatar-btn" aria-label="Аккаунт" onClick={() => setAccountOpen(true)}>
-              {account?.avatar_url ? <img src={account.avatar_url} alt="" /> : <span>{(account?.nickname || 'E').slice(0, 1).toUpperCase()}</span>}
-            </button>
-            <div className="account-hover-card">
-              <div className="account-hover-card-inner">
-                <div className="account-hover-row">
-                  <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('projects'); setMenuOpen(true); }}><Icon name="folder" /> Мои проекты</button>
-                  <button className="account-hover-add" aria-label="Новый проект" title="Новый проект" onClick={(event) => { event.stopPropagation(); setProjectModal('new'); }}><Icon name="plus" /></button>
-                </div>
-                <div className="account-hover-row">
-                  <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('all'); setMenuOpen(true); }}><Icon name="board" /> Мои борды</button>
-                  <button className="account-hover-add" aria-label="Новый борд" title="Новый борд" onClick={(event) => { event.stopPropagation(); setCollModal('new'); }}><Icon name="plus" /></button>
-                </div>
-                <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('fav'); }}><Icon name="favorite" /> Избранное</button>
-                <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('archive'); }}><Icon name="archive" /> Архив</button>
-                <i className="account-hover-sep" />
-                <button className={'account-hover-action' + (moveMode ? ' on' : '')} onClick={() => setMoveMode((value) => !value)}><Icon name={moveMode ? 'check' : 'move'} /> {moveMode ? 'Завершить перемещение' : 'Переместить'}</button>
-                <button className="account-hover-action" onClick={() => setAccountOpen(true)}><Icon name="settings" /> Настройки аккаунта</button>
-                <button className="account-hover-action" onClick={logout}><Icon name="logout" /> Выйти</button>
-              </div>
-            </div>
-          </div>
-        </header>
+        <Topbar
+          onToggleMobileMenu={() => setMenuOpen((v) => !v)}
+          breadcrumb={breadcrumb}
+          subtitle={`${selectedTag ? `#${selectedTag} · ` : ''}${visible.length} ${plural(visible.length, 'карточка', 'карточки', 'карточек')}`}
+          selectedTag={selectedTag}
+          onClearTag={() => setSelectedTag(null)}
+          search={search}
+          onSearchChange={setSearch}
+          aiMode={aiMode}
+          aiCredits={progress?.aiCredits}
+          onToggleAiMode={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}
+          onTopUpCredits={() => void topUpCredits()}
+          onPickFiles={() => fileRef.current?.click()}
+          onPickKind={(kind) => setNewElement(kind)}
+        />
+        <input ref={fileRef} type="file" accept="image/*,video/*" multiple hidden
+          onChange={(e) => { addFiles([...(e.target.files || [])]); e.target.value = ''; }} />
 
         <div className="scroll" onPointerDown={startSelection}>
           {projectRootView && currentProject ? (
@@ -1516,7 +1490,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
                     </button>
                     {publishMenuOpen && <>
                       <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setPublishMenuOpen(false)} />
-                      <div className="publish-menu">
+                      <div className="popover publish-menu">
                         {currentProject.access_mode === 'link' && currentProject.share_token ? (
                           <>
                             <div className="publish-menu-link">{(typeof window !== 'undefined' ? window.location.host : '')}/{account?.nickname || 'embeddd'}/{currentProject.slug}</div>
@@ -1533,8 +1507,8 @@ export default function Wall({ initialProjects, initialCollections, initialItems
                     <button aria-label="Ещё" title="Ещё" onClick={() => setProjectMenuOpen((v) => !v)}>⋮</button>
                     {projectMenuOpen && <>
                       <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setProjectMenuOpen(false)} />
-                      <div className="project-editor-dropdown">
-                        <button className="danger" onClick={() => { setProjectMenuOpen(false); deleteProject(currentProject); }}><Icon name="trash" />Удалить проект</button>
+                      <div className="popover project-editor-dropdown">
+                        <button className="danger" onClick={() => { setProjectMenuOpen(false); setConfirmDelete({ kind: 'project', project: currentProject }); }}><Icon name="trash" />Удалить проект</button>
                       </div>
                     </>}
                   </div>
@@ -1547,13 +1521,13 @@ export default function Wall({ initialProjects, initialCollections, initialItems
                     <button className={contentTab === 'boards' ? 'on' : ''} onClick={() => setContentTab('boards')}>Борды</button>
                     <button className={contentTab === 'items' ? 'on' : ''} onClick={() => setContentTab('items')}>Карточки</button>
                   </div>
-                  {gridBody}
-                  {emptyBody}
+                  {showBoardStrip && boardStripBody}
+                  {showItemsGrid && <>{sortBar}{gridBody}{emptyBody}</>}
                 </div>
                 <ProjectSettingsPanel project={currentProject} />
               </div>
             </div>
-          ) : <>{sortBar}{gridBody}{emptyBody}</>}
+          ) : projectsGalleryView ? <>{projectGalleryBody}{emptyBody}</> : <>{showBoardStrip && boardStripBody}{sortBar}{showItemsGrid && <>{gridBody}{emptyBody}</>}</>}
         </div>
 
         <div className={'dropzone' + (dropping ? ' on' : '')}>Отпусти — положу на стену</div>
@@ -1580,12 +1554,83 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       {editing && <EditModal item={editing} />}
       {sizePicker && <SizePickerModal value={elementSize(sizePicker.display_size)} onChange={(v) => patch(sizePicker.id, { displaySize: v })} onConfirm={() => setSizePicker(null)} onClose={() => setSizePicker(null)} />}
       {bulkSizeOpen && <SizePickerModal value={bulkSize} onChange={setBulkSize} onConfirm={() => { resizeSelected(bulkSize); setBulkSizeOpen(false); }} onClose={() => setBulkSizeOpen(false)} />}
-      {disposing && <div className="overlay on" onClick={(event) => { if (event.target === event.currentTarget) setDisposing(null); }}><div className="modal dispose-modal"><h3>Что сделать с карточкой?</h3><p>В архиве она будет храниться 30 дней, затем удалится окончательно.</p><div className="dispose-actions"><button onClick={() => archiveItem(disposing)}><Icon name="archive" /><span><b>Архивировать</b><small>Можно восстановить в течение 30 дней</small></span></button><button className="danger" onClick={() => { const item = disposing; setDisposing(null); void remove(item); }}><Icon name="trash" /><span><b>Удалить навсегда</b><small>Файл сразу удалится из хранилища</small></span></button></div><div className="modal-foot"><button className="btn ghost" onClick={() => setDisposing(null)}>Отмена</button></div></div></div>}
+      {disposing && <div className="overlay on" onClick={(event) => { if (event.target === event.currentTarget) setDisposing(null); }}><div className="modal dispose-modal"><h3>Что сделать с карточкой?</h3><p>В архиве она будет храниться 30 дней, затем удалится окончательно.</p><div className="dispose-actions"><button onClick={() => { if (lightbox === disposing.id) setLightbox(null); void archiveItem(disposing); }}><Icon name="archive" /><span><b>Архивировать</b><small>Можно восстановить в течение 30 дней</small></span></button><button className="danger" onClick={() => { const item = disposing; setDisposing(null); if (lightbox === item.id) setLightbox(null); void remove(item); }}><Icon name="trash" /><span><b>Удалить навсегда</b><small>Файл сразу удалится из хранилища</small></span></button></div><div className="modal-foot"><button className="btn ghost" onClick={() => setDisposing(null)}>Отмена</button></div></div></div>}
+      {confirmDelete && (() => {
+        const isBoard = confirmDelete.kind === 'board';
+        const name = isBoard ? confirmDelete.board.name : confirmDelete.project.name;
+        const boardIds = isBoard ? [confirmDelete.board.id] : collections.filter((value) => value.project_id === confirmDelete.project.id).map((value) => value.id);
+        const itemCount = items.filter((item) => item.collection_id && boardIds.includes(item.collection_id)).length;
+        const detail = isBoard
+          ? (itemCount ? `Вместе с бордом удалятся все карточки внутри — ${itemCount} шт., включая файлы в хранилище.` : 'Борд пуст, карточек внутри нет.')
+          : (boardIds.length ? `Вместе с проектом удалятся все борды внутри (${boardIds.length}) и все карточки в них — ${itemCount} шт., включая файлы в хранилище.` : 'В проекте нет бордов.');
+        return <div className="overlay on stacked" onClick={(event) => { if (event.target === event.currentTarget) setConfirmDelete(null); }}>
+          <div className="modal dispose-modal">
+            <h3>{isBoard ? 'Удалить борд' : 'Удалить проект'} «{name}»?</h3>
+            <p>{detail} Отменить это действие будет нельзя.</p>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmDelete(null)}>Отмена</button>
+              <button className="btn" style={{ background: 'var(--danger)' }} onClick={() => {
+                const target = confirmDelete;
+                setConfirmDelete(null);
+                if (target.kind === 'board') void deleteCollection(target.board); else void deleteProject(target.project);
+              }}>Удалить навсегда</button>
+            </div>
+          </div>
+        </div>;
+      })()}
+      {mergePreview && (() => {
+        const totalSources = mergePreview.reduce((sum, group) => sum + group.length - 1, 0);
+        return <div className="overlay on" onClick={(event) => { if (event.target === event.currentTarget) setMergePreview(null); }}>
+          <div className="modal dispose-modal">
+            <h3>Объединить {mergePreview.length > 1 ? `${mergePreview.length} групп бордов` : 'борды'}?</h3>
+            <p>Похожие борды будут слиты в один — карточки переедут, борды-источники удалятся. Отменить это действие будет нельзя.</p>
+            <div className="modal-foot" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+              {mergePreview.map((group) => {
+                const target = group.reduce((best, b) => (countOf(b.id) > countOf(best.id) ? b : best), group[0]);
+                const sources = group.filter((b) => b.id !== target.id);
+                return <div key={target.id} style={{ fontSize: 12.5, color: 'var(--muted)', textAlign: 'left' }}>
+                  {sources.map((b) => `«${b.name}»`).join(', ')} → <b style={{ color: 'var(--ink)' }}>«{target.name}»</b>
+                </div>;
+              })}
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setMergePreview(null)}>Отмена</button>
+              <button className="btn" onClick={() => { const groups = mergePreview; setMergePreview(null); void applyMergeGroups(groups); }}>Объединить {totalSources} {plural(totalSources, 'борд', 'борда', 'бордов')}</button>
+            </div>
+          </div>
+        </div>;
+      })()}
       {collModal && <CollModal />}
       {projectModal && <ProjectModal />}
       {accountOpen && <AccountModal />}
       {newElement && (isWidgetKind(newElement) ? <WidgetSettingsModal kind={newElement} /> : <NewElementModal kind={newElement} />)}
-      {lightbox && <Lightbox />}
+      {lightbox && (() => {
+        const list = visible.filter((i) => i.kind === 'image' || i.kind === 'video');
+        const it = list.find((i) => i.id === lightbox);
+        if (!it) return null;
+        const board = collections.find((value) => value.id === it.collection_id);
+        const project = projects.find((value) => value.id === board?.project_id);
+        const related = board
+          ? items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && value.collection_id === board.id).slice(0, 6)
+          : items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && value.tags?.some((tag) => it.tags?.includes(tag))).slice(0, 6);
+        const relatedTitle = board ? `Другие в «${board.name}»` : 'Похожие карточки';
+        return <ElementDetail
+          item={it} board={board} project={project} related={related} relatedTitle={relatedTitle} collections={collections}
+          onClose={() => setLightbox(null)}
+          onOpenHome={() => { setLightbox(null); setActiveProject('all'); setActive('all'); }}
+          onOpenBoard={(b) => { setLightbox(null); setActiveProject(b.project_id || 'all'); setActive(b.id); }}
+          onOpenProject={(p) => { setLightbox(null); setActiveProject(p.id); setActive('all'); }}
+          onOpenRelated={(id) => setLightbox(id)}
+          onToggleFav={() => void patch(it.id, { fav: !it.fav })}
+          onEdit={() => { setEditing(it); setLightbox(null); }}
+          onArchive={() => { setLightbox(null); void archiveItem(it); }}
+          onDispose={() => setDisposing(it)}
+          onMoveTo={(collectionId) => void patch(it.id, { collectionId })}
+          onSaveNote={(note) => void patch(it.id, { note })}
+          onChecklistChange={(checklist) => void patch(it.id, { checklist })}
+          onSelectTag={(tag) => { setSelectedTag(tag); setActive('all'); setLightbox(null); }}
+        />;
+      })()}
 
       {upload && (
         <div className="upload-bar">
@@ -1617,26 +1662,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   );
 
   /* ---------------- вложенные компоненты ---------------- */
-
-  function NavRow({ id, name, color, count, coll, compact = false, onAdd, addLabel, icon }: { id: Active; name: string; color?: string; count: number; coll?: Collection; compact?: boolean; onAdd?: () => void; addLabel?: string; icon?: 'home' | 'favorite' | 'archive' }) {
-    return (
-      <div
-        data-collection-drop={id}
-        data-tooltip={name}
-        className={'coll' + (active === id ? ' active' : '') + (compact ? ' compact' : '') + (draggingBoard === coll?.id ? ' board-dragging' : '')}
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest('.coll-edit')) return;
-          setActive(id); setMenuOpen(false);
-        }}
-      >
-        {icon ? <Icon name={icon} className="coll-icon" /> : <span className="coll-dot" style={color ? { background: color } : undefined} />}
-        <span className="coll-name">{name}</span>
-        {onAdd && <button className="coll-edit" aria-label={addLabel || 'Добавить'} onClick={(e) => { e.stopPropagation(); onAdd(); }}><Icon name="plus" /></button>}
-        {coll && <button className="coll-edit" onClick={() => setCollModal(coll)}>⋯</button>}
-      </div>
-    );
-  }
-
 
   function NewElementModal({ kind }: { kind: Exclude<NewElement, WidgetKind> }) {
     const [value, setValue] = useState('');
@@ -1819,7 +1844,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           </select></div>
           {c?.share_token && access === 'link' && <button className="share-link" onClick={() => { navigator.clipboard.writeText(`${location.origin}/c/${c.share_token}`); say('Ссылка скопирована'); }}>Скопировать публичную ссылку</button>}
           <div className="modal-foot">
-            {c && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteCollection(c)}>Удалить</button>}
+            {c && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => setConfirmDelete({ kind: 'board', board: c })}>Удалить</button>}
             <button className="btn ghost" onClick={() => setCollModal(null)}>Отмена</button>
             <button className="btn" onClick={() => name.trim() && saveCollection(name.trim(), color, access, projectId || null)}>{c ? 'Сохранить' : 'Создать'}</button>
           </div>
@@ -1860,7 +1885,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         <option value="private">Только я</option><option value="link">По ссылке — виден всем</option>
       </select></div>}
       {project && publicUrl && access === 'link' && <button className="share-link" onClick={() => { navigator.clipboard.writeText(publicUrl); say('Ссылка скопирована'); }}>Скопировать публичную ссылку</button>}
-      <div className="modal-foot">{project && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => deleteProject(project)}>Удалить</button>}<button className="btn ghost" onClick={() => setProjectModal(null)}>Отмена</button><button className="btn" onClick={submit}>{project ? 'Сохранить' : 'Создать'}</button></div>
+      <div className="modal-foot">{project && <button className="btn ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => setConfirmDelete({ kind: 'project', project })}>Удалить</button>}<button className="btn ghost" onClick={() => setProjectModal(null)}>Отмена</button><button className="btn" onClick={submit}>{project ? 'Сохранить' : 'Создать'}</button></div>
     </div></div>;
   }
 
@@ -1934,100 +1959,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     </div></div>;
   }
 
-  function Lightbox() {
-    const list = visible.filter((i) => i.kind === 'image' || i.kind === 'video');
-    const it = list.find((i) => i.id === lightbox);
-    if (!it) return null;
-    const [description, setDescription] = useState(it.note || '');
-    const [editingDescription, setEditingDescription] = useState(false);
-    const [movingCard, setMovingCard] = useState(false);
-    const [newChecklistText, setNewChecklistText] = useState('');
-    const board = collections.find((value) => value.id === it.collection_id);
-    const project = projects.find((value) => value.id === board?.project_id);
-    const checklist = it.checklist || [];
-    const related = board
-      ? items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && value.collection_id === board.id).slice(0, 6)
-      : items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && value.tags?.some((tag) => it.tags?.includes(tag))).slice(0, 6);
-    const relatedTitle = board ? `Другие в «${board.name}»` : 'Похожие карточки';
-
-    function updateChecklist(next: ChecklistItem[]) { void patch(it!.id, { checklist: next }); }
-    function addChecklistItem() {
-      const text = newChecklistText.trim();
-      if (!text) return;
-      updateChecklist([...checklist, { id: crypto.randomUUID(), text, done: false }]);
-      setNewChecklistText('');
-    }
-
-    return (
-      <div className="lb on" onClick={(event) => { if (event.target === event.currentTarget) setLightbox(null); }}>
-        <div className="lb-crumbs">
-          <button className="lb-crumb-back" aria-label="Назад" onClick={() => setLightbox(null)}><Icon name="back" /></button>
-          <button className="lb-crumb" onClick={() => { setLightbox(null); setActiveProject('all'); setActive('all'); }}>embeddd</button>
-          {board && <><span>/</span><button className="lb-crumb" onClick={() => { setLightbox(null); setActiveProject(board.project_id || 'all'); setActive(board.id); }}>{board.name}</button></>}
-          <span>/</span><b className="lb-crumb-current">{it.title || 'Без названия'}</b>
-        </div>
-        <div className="lb-layout"><div className="pin-detail">
-          <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} poster={it.thumb && it.thumb !== it.src ? it.thumb : undefined} controls autoPlay playsInline preload="metadata" /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}<button className={'detail-favorite' + (it.fav ? ' on' : '')} aria-label={it.fav ? 'Убрать из избранного' : 'Добавить в избранное'} title="Избранное" onClick={() => void patch(it.id, { fav: !it.fav })}><Icon name={it.fav ? 'unfavorite' : 'favorite'} /></button></div>
-          <div className="pin-detail-info">
-            <div className="pin-detail-toolbar">
-              <button aria-label="Редактировать" title="Редактировать" onClick={() => { setEditing(it); setLightbox(null); }}><Icon name="edit" /></button>
-              <button className={movingCard ? 'on' : ''} aria-label="Переместить" title="Переместить" onClick={() => setMovingCard((value) => !value)}><Icon name="move" /></button>
-              <button aria-label="Архивировать" title="Архивировать" onClick={() => { setLightbox(null); void archiveItem(it); }}><Icon name="archive" /></button>
-              <button className="danger" aria-label="Удалить" title="Удалить" onClick={() => { setLightbox(null); void remove(it); }}><Icon name="trash" /></button>
-            </div>
-            {movingCard && <div className="detail-move"><select autoFocus value={it.collection_id || ''} onChange={(event) => { void patch(it.id, { collectionId: event.target.value || null }); setMovingCard(false); }}><option value="">Без борда</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></div>}
-            <h2>{it.title || 'Без названия'}</h2>
-            <div className="description-field">{editingDescription ? <textarea autoFocus value={description} placeholder="Добавить описание…" onChange={(event) => setDescription(event.target.value)} onBlur={() => { void patch(it.id, { note: description }); setEditingDescription(false); }} /> : <button className={'description-read' + (!description ? ' empty' : '')} onClick={() => setEditingDescription(true)}>{description || 'Добавить описание'}</button>}</div>
-            <div className="detail-checklist">
-              <div className="detail-checklist-head">Чек-лист</div>
-              {checklist.map((entry) => (
-                <label key={entry.id} className="checklist-row">
-                  <input type="checkbox" checked={entry.done} onChange={() => updateChecklist(checklist.map((e) => e.id === entry.id ? { ...e, done: !e.done } : e))} />
-                  <span className={entry.done ? 'done' : ''}>{entry.text}</span>
-                  <button aria-label="Удалить пункт" onClick={() => updateChecklist(checklist.filter((e) => e.id !== entry.id))}><Icon name="close" /></button>
-                </label>
-              ))}
-              <div className="checklist-add-row">
-                <input value={newChecklistText} placeholder="Добавить пункт" onChange={(event) => setNewChecklistText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addChecklistItem(); }} />
-                <button aria-label="Добавить пункт" onClick={addChecklistItem}><Icon name="plus" /></button>
-              </div>
-            </div>
-            {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
-            event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
-          }}>#{tag}</button>)}</div>}
-            {(project || board) && <div className="detail-location">{project && <button onClick={() => { setLightbox(null); setActiveProject(project.id); setActive('all'); }}><small>Проект</small><b>{project.name}</b></button>}{board && <button onClick={() => { setLightbox(null); setActiveProject(board.project_id || 'all'); setActive(board.id); }}><small>Борд</small><b>{board.name}</b></button>}</div>}
-          </div>
-        </div>{!!related.length && <aside className="detail-related">
-          <div className="detail-related-head">{relatedTitle}</div>
-          {related.map((item) => <button key={item.id} onClick={() => setLightbox(item.id)}>{item.kind === 'video' ? <video muted playsInline preload="metadata" poster={item.thumb && item.thumb !== item.src ? item.thumb : undefined} src={item.src || ''} /> : <img src={item.thumb || item.src || ''} alt="" />}<b>{item.title || 'Без названия'}</b></button>)}
-          {board && <button className="detail-related-more" onClick={() => { setLightbox(null); setActiveProject(board.project_id || 'all'); setActive(board.id); }}>Смотреть все в «{board.name}» →</button>}
-        </aside>}</div>
-      </div>
-    );
-  }
-
 }
 
 /* ---------------- мелочи ---------------- */
-
-function BoardDropZone({ id, children }: { id: string; children: ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `container:${id}`, data: { type: 'container', containerId: id } });
-  return <div ref={setNodeRef} className={'project-tree' + (isOver ? ' drop' : '')}>{children}</div>;
-}
-
-function BoardRowVisual({ board, overlay = false }: { board: Collection; count: number; overlay?: boolean }) {
-  return <div className={'coll board-row-visual' + (overlay ? ' board-overlay' : '')} data-tooltip={board.name}>
-    <span className="coll-dot" style={{ background: board.color }} /><span className="coll-name">{board.name}</span><span className="board-grip" aria-hidden="true">⠿</span>
-  </div>;
-}
-
-function SortableBoardRow({ board, active, onOpen, onEdit }: { board: Collection; active: boolean; count: number; onOpen: () => void; onEdit: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: board.id, data: { type: 'board', containerId: board.project_id || 'unassigned' } });
-  const style: CSSProperties = { transform: CSS.Transform.toString(transform), transition };
-  return <div ref={setNodeRef} style={style} data-tooltip={board.name} className={'coll sortable-board' + (active ? ' active' : '') + (isDragging ? ' board-dragging' : '')} onClick={onOpen} {...attributes} {...listeners}>
-    <span className="coll-dot" style={{ background: board.color }} /><span className="coll-name">{board.name}</span><button className="coll-edit" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onEdit(); }}>⋯</button><span className="board-grip" aria-hidden="true">⠿</span>
-  </div>;
-}
 
 function AutoVideo({ src, className, poster }: { src: string; className: string; poster?: string }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -2046,39 +1980,6 @@ function AutoVideo({ src, className, poster }: { src: string; className: string;
   return <><video ref={ref} className={className} draggable={false} muted loop playsInline poster={poster} preload={near ? 'metadata' : 'none'} src={near ? src : undefined}
     onLoadedMetadata={(event) => { setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0); if (!poster && event.currentTarget.duration > .05) event.currentTarget.currentTime = .05; }}
     onMouseEnter={(event) => { void event.currentTarget.play().catch(() => {}); }} onMouseLeave={(event) => event.currentTarget.pause()} />{duration > 0 && <span className="video-duration">{formatDuration(duration)}</span>}</>;
-}
-
-function Icon({ name, className }: { name: 'search' | 'close' | 'award' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' | 'logout' | 'folder' | 'merge' | 'board' | 'home' | 'chevron'; className?: string }) {
-  const paths: Record<typeof name, React.ReactNode> = {
-    home: <><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9"/></>,
-    chevron: <path d="m6 9 6 6 6-6"/>,
-    search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
-    close: <><path d="M6 6l12 12M18 6 6 18"/></>,
-    award: <><circle cx="12" cy="9" r="5"/><path d="m8.5 13-1 8 4.5-2.5L16.5 21l-1-8"/><path d="m10 9 1.3 1.3L14 7.7"/></>,
-    move: <><path d="M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4"/></>,
-    check: <path d="m5 12 4 4L19 6"/>,
-    back: <><path d="m15 18-6-6 6-6"/><path d="M9 12h11"/></>,
-    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
-    plus: <path d="M12 5v14M5 12h14"/>,
-    archive: <><path d="M4 7h16v13H4zM3 4h18v3H3zM9 11h6"/></>,
-    trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></>,
-    restore: <><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8"/><path d="M4 3v5h5"/></>,
-    edit: <><path d="M4 20h4l11-11-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></>,
-    favorite: <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>,
-    unfavorite: <path fill="currentColor" d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>,
-    logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></>,
-    folder: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>,
-    merge: <><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M6 8.4V13a4 4 0 0 0 4 4h5.6"/></>,
-    board: <><rect x="3" y="3" width="8" height="18" rx="2.2"/><rect x="13" y="3" width="8" height="10" rx="2.2"/></>,
-  };
-  return <svg className={className ? `ui-icon ${className}` : 'ui-icon'} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
-}
-
-function plural(n: number, a: string, b: string, c: string) {
-  const m = n % 100;
-  if (m >= 11 && m <= 14) return c;
-  const k = n % 10;
-  return k === 1 ? a : k >= 2 && k <= 4 ? b : c;
 }
 
 function formatDuration(seconds: number) {

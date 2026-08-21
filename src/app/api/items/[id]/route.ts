@@ -73,6 +73,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if (!rows.length) return NextResponse.json({ error: 'Элемент не найден' }, { status: 404 });
   await sql`delete from items where id = ${id}`;
   const keys = [rows[0]?.r2_key, rows[0]?.r2_thumb_key].filter(Boolean) as string[];
-  if (keys.length) await deleteKeys(keys).catch(() => {});
+  if (keys.length) await deleteKeys(keys).catch((error) => console.error('R2 delete failed', error));
   return NextResponse.json({ ok: true });
 }

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { deleteKeys } from '@/lib/r2';
+import { HEX_COLOR, isValidAccessMode } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 type Ctx = { params: Promise<{ id: string }> };
-const COLOR = /^#[0-9a-f]{6}$/i;
 
 export async function PATCH(req: Request, { params }: Ctx) {
   const { id } = await params;
@@ -23,7 +23,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   if (color !== undefined) {
     const value = String(color);
-    if (!COLOR.test(value)) return NextResponse.json({ error: 'Некорректный цвет' }, { status: 400 });
+    if (!HEX_COLOR.test(value)) return NextResponse.json({ error: 'Некорректный цвет' }, { status: 400 });
     await sql`update collections set color = ${value} where id = ${id}`;
   }
   if (position !== undefined) {
@@ -39,7 +39,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
     await sql`update collections set project_id = ${target} where id = ${id}`;
   }
-  if (accessMode !== undefined && accessMode !== 'private' && accessMode !== 'link') return NextResponse.json({ error: 'Некорректный режим доступа' }, { status: 400 });
+  if (accessMode !== undefined && !isValidAccessMode(accessMode)) return NextResponse.json({ error: 'Некорректный режим доступа' }, { status: 400 });
   if (accessMode === 'private') await sql`update collections set access_mode = 'private', share_token = null where id = ${id}`;
   if (accessMode === 'link') await sql`update collections set access_mode = 'link', share_token = coalesce(share_token, ${crypto.randomUUID().replaceAll('-', '')}) where id = ${id}`;
 
@@ -57,6 +57,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   // Удаляем карточки до борда, чтобы ON DELETE SET NULL не превращал их в сирот.
   await sql`delete from items where collection_id = ${id}`;
   await sql`delete from collections where id = ${id}`;
-  await deleteKeys(items.flatMap((item) => [item.r2_key, item.r2_thumb_key]).filter(Boolean) as string[]).catch(() => {});
+  await deleteKeys(items.flatMap((item) => [item.r2_key, item.r2_thumb_key]).filter(Boolean) as string[]).catch((error) => console.error('R2 delete failed', error));
   return NextResponse.json({ ok: true });
 }

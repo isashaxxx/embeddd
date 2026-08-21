@@ -1,12 +1,19 @@
+import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { COOKIE, sign } from '@/lib/auth';
+
+function safeEqual(a: string, b: string) {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
 
 export async function POST(req: Request) {
   const { password } = await req.json().catch(() => ({ password: '' }));
   const expected = process.env.APP_PASSWORD;
 
   if (!expected) return NextResponse.json({ error: 'APP_PASSWORD не задан на сервере' }, { status: 500 });
-  if (password !== expected) return NextResponse.json({ error: 'Пароль не подошёл' }, { status: 401 });
+  if (!safeEqual(String(password || ''), expected)) return NextResponse.json({ error: 'Пароль не подошёл' }, { status: 401 });
 
   const res = NextResponse.json({ ok: true });
   res.cookies.set(COOKIE, await sign(), {

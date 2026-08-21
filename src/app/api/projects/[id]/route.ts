@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { deleteKeys } from '@/lib/r2';
+import { HEX_COLOR, isValidAccessMode } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 type Ctx = { params: Promise<{ id: string }> };
-const COLOR = /^#[0-9a-f]{6}$/i;
 
 export async function PATCH(req: Request, { params }: Ctx) {
   const { id } = await params;
@@ -17,10 +17,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
     if (!value) return NextResponse.json({ error: 'Название не может быть пустым' }, { status: 400 });
     await sql`update projects set name = ${value} where id = ${id}`;
   }
-  if (color !== undefined && COLOR.test(String(color))) await sql`update projects set color = ${String(color)} where id = ${id}`;
+  if (color !== undefined) {
+    if (!HEX_COLOR.test(String(color))) return NextResponse.json({ error: 'Некорректный цвет' }, { status: 400 });
+    await sql`update projects set color = ${String(color)} where id = ${id}`;
+  }
   if (description !== undefined) await sql`update projects set description = ${String(description).slice(0, 2000)} where id = ${id}`;
-  if (position !== undefined && Number.isFinite(Number(position))) await sql`update projects set position = ${Number(position)} where id = ${id}`;
+  if (position !== undefined) {
+    const value = Number(position);
+    if (!Number.isFinite(value)) return NextResponse.json({ error: 'Некорректная позиция' }, { status: 400 });
+    await sql`update projects set position = ${value} where id = ${id}`;
+  }
   if (coverUrl !== undefined) await sql`update projects set cover_url = ${coverUrl ? String(coverUrl).slice(0, 2048) : null} where id = ${id}`;
+  if (accessMode !== undefined && !isValidAccessMode(accessMode)) return NextResponse.json({ error: 'Некорректный режим доступа' }, { status: 400 });
   if (accessMode === 'private') await sql`update projects set access_mode = 'private', share_token = null where id = ${id}`;
   if (accessMode === 'link') await sql`
     update projects set access_mode = 'link', share_token = coalesce(share_token, ${crypto.randomUUID().replaceAll('-', '')}) where id = ${id}`;
@@ -42,6 +50,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   await sql`delete from collections where project_id = ${id}`;
   const deleted = await sql`delete from projects where id = ${id} returning id` as unknown as { id: string }[];
   if (!deleted.length) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
-  await deleteKeys(items.flatMap((item) => [item.r2_key, item.r2_thumb_key]).filter(Boolean) as string[]).catch(() => {});
+  await deleteKeys(items.flatMap((item) => [item.r2_key, item.r2_thumb_key]).filter(Boolean) as string[]).catch((error) => console.error('R2 delete failed', error));
   return NextResponse.json({ ok: true });
 }

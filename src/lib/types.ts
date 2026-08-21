@@ -1,3 +1,5 @@
+export type Active = 'all' | 'fav' | 'archive' | 'projects' | string;
+
 export type Collection = {
   id: string;
   slug: string;

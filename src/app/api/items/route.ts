@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     if (u.contentHash) {
       const duplicate = (await sql`select id from items where content_hash = ${u.contentHash} and archived_at is null limit 1`) as unknown as { id: string }[];
       if (duplicate.length) {
-        await deleteKeys([u.key, u.thumbKey].filter(Boolean)).catch(() => {});
+        await deleteKeys([u.key, u.thumbKey].filter(Boolean)).catch((error) => console.error('R2 delete failed', error));
         return NextResponse.json({ error: 'Этот файл уже есть в библиотеке', duplicateId: duplicate[0].id }, { status: 409 });
       }
     }

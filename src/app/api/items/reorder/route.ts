@@ -17,9 +17,13 @@ export async function POST(req: Request) {
   const collections = new Set(rows.map((item) => item.collection_id || '__none__'));
   if (collections.size !== 1) return NextResponse.json({ error: 'Нельзя менять порядок элементов из разных бордов одним запросом' }, { status: 400 });
 
+  // Один UPDATE на весь новый порядок вместо цикла: на большом борде цикл
+  // из N последовательных запросов на каждый drag быстро упирается в
+  // таймаут функции.
   const slots = rows.map((item) => Number(item.position)).sort((a, b) => a - b);
-  for (let index = 0; index < cleanIds.length; index++) {
-    await sql`update items set position = ${slots[index]} where id = ${cleanIds[index]}`;
-  }
+  await sql`
+    update items as i set position = v.position
+    from (select unnest(${cleanIds}::text[]) as id, unnest(${slots}::double precision[]) as position) as v
+    where i.id = v.id`;
   return NextResponse.json({ ok: true });
 }

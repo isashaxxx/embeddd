@@ -72,21 +72,8 @@ create table if not exists account_profile (
   updated_at timestamptz not null default now()
 );
 
--- `create table if not exists` не расширяет уже существующую таблицу.
-alter table collections add column if not exists project_id text references projects(id) on delete set null;
-alter table projects add column if not exists slug text;
-alter table collections add column if not exists slug text;
-alter table items add column if not exists slug text;
-alter table user_stats add column if not exists ai_credits integer not null default 100;
-alter table items add column if not exists archived_at timestamptz;
-alter table items add column if not exists content_hash text;
-update projects set slug = id where slug is null;
-update collections set slug = id where slug is null;
-update items set slug = id where slug is null;
-create unique index if not exists projects_slug_idx on projects (slug);
-create unique index if not exists collections_slug_idx on collections (slug);
-create unique index if not exists items_slug_idx on items (slug);
-
+-- Колонки выше (project_id, slug, ai_credits, archived_at, content_hash) и их индексы/бэкфилл
+-- уже покрыты migrations/004, 005, 006, 008 — которые применяются следом за этим файлом.
+-- Здесь остаются только индексы, не относящиеся ни к одной миграции.
 create index if not exists items_position_idx on items (position);
 create index if not exists items_collection_idx on items (collection_id);
-create index if not exists collections_project_idx on collections (project_id);
