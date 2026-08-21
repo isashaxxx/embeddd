@@ -12,6 +12,8 @@ export type Collection = {
 
 export type Project = { id: string; slug: string; name: string; color: string; position: number; created_at: string; cover_url: string | null; access_mode: 'private' | 'link'; share_token: string | null; description: string };
 
+export type ChecklistItem = { id: string; text: string; done: boolean };
+
 export type Item = {
   id: string;
   slug: string;
@@ -39,6 +41,7 @@ export type Item = {
   created_at?: string;
   archived_at: string | null;
   content_hash: string | null;
+  checklist: ChecklistItem[];
 };
 
 export type Achievement = {

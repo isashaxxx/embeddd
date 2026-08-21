@@ -7,7 +7,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type Muuri from 'muuri';
-import type { Account, Collection, Item, Progress, Project } from '@/lib/types';
+import type { Account, ChecklistItem, Collection, Item, Progress, Project } from '@/lib/types';
 import { shrink, videoPreview, videoSize } from '@/lib/resize';
 import CalendarWidget from './widgets/CalendarWidget';
 import WeatherWidget from './widgets/WeatherWidget';
@@ -481,7 +481,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       position: -Infinity, fav: false, url, host: safeHost(url), embed_url: null, embed_h: null,
       ratio: null, src: null, thumb: null, width: null, height: null, r2_key: null,
       r2_thumb_key: null, title: safeHost(url), note: '', display_size: 'M', text_style: 'p',
-      tags: [], archived_at: null, content_hash: null, created_at: new Date().toISOString(),
+      tags: [], archived_at: null, content_hash: null, created_at: new Date().toISOString(), checklist: [],
     };
     setItems((p) => [optimistic, ...p]);
 
@@ -1387,6 +1387,18 @@ export default function Wall({ initialProjects, initialCollections, initialItems
       <p>Карточки таскаются мышкой — между собой и в коллекции слева.</p>
     </div>
   );
+  const sortBar = active === 'all' && activeProject === 'all' && !projectsGalleryView && (
+    <div className="feed-sort-bar">
+      <button className="feed-sort-btn" aria-expanded={sortMenuOpen} onClick={() => setSortMenuOpen((v) => !v)}>{feedOrder === 'newest' ? 'Сначала новые' : 'Сначала старые'}<Icon name="chevron" /></button>
+      {sortMenuOpen && <>
+        <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setSortMenuOpen(false)} />
+        <div className="sort-menu feed-sort-menu">
+          <button className={feedOrder === 'newest' ? 'on' : ''} onClick={() => { setFeedOrder('newest'); setSortMenuOpen(false); }}><Icon name="check" />Сначала новые</button>
+          <button className={feedOrder === 'oldest' ? 'on' : ''} onClick={() => { setFeedOrder('oldest'); setSortMenuOpen(false); }}><Icon name="check" />Сначала старые</button>
+        </div>
+      </>}
+    </div>
+  );
 
   return (
     <div className={'app' + (moveMode ? ' move-mode' : '')}>
@@ -1439,20 +1451,6 @@ export default function Wall({ initialProjects, initialCollections, initialItems
           </div>
           {selectedTag && <button className="tag-filter" onClick={() => setSelectedTag(null)}>#{selectedTag} ×</button>}
           <div ref={topSearchRef} className={'top-search' + (searchOpen ? ' open' : '')}>{searchOpen && <input autoFocus value={search} placeholder="Поиск" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); } }} />}<button className="icon-control" aria-label="Поиск" title="Поиск" onClick={() => { if (searchOpen && search) setSearch(''); else setSearchOpen((value) => !value); }}><Icon name={searchOpen && search ? 'close' : 'search'} /></button></div>
-          {active === 'all' && (
-            <div className="sort-control">
-              <button className="icon-control" aria-label="Порядок ленты" aria-expanded={sortMenuOpen} title="Порядок ленты" onClick={() => setSortMenuOpen((v) => !v)}><Icon name="sort" /></button>
-              {sortMenuOpen && <>
-                <button className="menu-shield" aria-label="Закрыть меню" onClick={() => setSortMenuOpen(false)} />
-                <div className="sort-menu">
-                  <button className={feedOrder === 'newest' ? 'on' : ''} onClick={() => { setFeedOrder('newest'); setSortMenuOpen(false); }}><Icon name="check" />Сначала новые</button>
-                  <button className={feedOrder === 'oldest' ? 'on' : ''} onClick={() => { setFeedOrder('oldest'); setSortMenuOpen(false); }}><Icon name="check" />Сначала старые</button>
-                </div>
-              </>}
-            </div>
-          )}
-          <button className={'icon-control move-toggle' + (moveMode ? ' on' : '')} title={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-label={moveMode ? 'Завершить перемещение' : 'Переместить'} aria-pressed={moveMode}
-            onClick={() => setMoveMode((value) => !value)}><Icon name={moveMode ? 'check' : 'move'} /></button>
           <button className={'ai-mode-button mode-' + aiMode} aria-pressed={aiMode === 'auto'} disabled={progress?.aiCredits === 0}
             aria-label={aiMode === 'auto' ? 'Выключить ИИ' : 'Включить ИИ'} title={progress?.aiCredits === 0 ? 'Кредиты закончились' : undefined} onClick={() => chooseAiMode(aiMode === 'auto' ? 'off' : 'auto')}><span>AI</span><small className="ai-credit-tooltip">Осталось {progress?.aiCredits ?? '…'} кредитов</small></button>
           {progress?.aiCredits === 0 && <button className="btn ghost credits-topup" title="Начислить 100 AI-кредитов" onClick={() => void topUpCredits()}>+100 кредитов</button>}
@@ -1493,6 +1491,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
                 <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('fav'); }}><Icon name="favorite" /> Избранное</button>
                 <button className="account-hover-action" onClick={() => { setActiveProject('all'); setActive('archive'); }}><Icon name="archive" /> Архив</button>
                 <i className="account-hover-sep" />
+                <button className={'account-hover-action' + (moveMode ? ' on' : '')} onClick={() => setMoveMode((value) => !value)}><Icon name={moveMode ? 'check' : 'move'} /> {moveMode ? 'Завершить перемещение' : 'Переместить'}</button>
                 <button className="account-hover-action" onClick={() => setAccountOpen(true)}><Icon name="settings" /> Настройки аккаунта</button>
                 <button className="account-hover-action" onClick={logout}><Icon name="logout" /> Выйти</button>
               </div>
@@ -1554,7 +1553,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
                 <ProjectSettingsPanel project={currentProject} />
               </div>
             </div>
-          ) : <>{gridBody}{emptyBody}</>}
+          ) : <>{sortBar}{gridBody}{emptyBody}</>}
         </div>
 
         <div className={'dropzone' + (dropping ? ' on' : '')}>Отпусти — положу на стену</div>
@@ -1942,13 +1941,31 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const [description, setDescription] = useState(it.note || '');
     const [editingDescription, setEditingDescription] = useState(false);
     const [movingCard, setMovingCard] = useState(false);
+    const [newChecklistText, setNewChecklistText] = useState('');
     const board = collections.find((value) => value.id === it.collection_id);
     const project = projects.find((value) => value.id === board?.project_id);
-    const recommendations = items.filter((value) => value.id !== it.id && !value.archived_at && (value.kind === 'image' || value.kind === 'video') && (value.collection_id === it.collection_id || value.tags?.some((tag) => it.tags?.includes(tag)))).slice(0, 6);
+    const checklist = it.checklist || [];
+    const related = board
+      ? items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && value.collection_id === board.id).slice(0, 6)
+      : items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && value.tags?.some((tag) => it.tags?.includes(tag))).slice(0, 6);
+    const relatedTitle = board ? `Другие в «${board.name}»` : 'Похожие карточки';
+
+    function updateChecklist(next: ChecklistItem[]) { void patch(it!.id, { checklist: next }); }
+    function addChecklistItem() {
+      const text = newChecklistText.trim();
+      if (!text) return;
+      updateChecklist([...checklist, { id: crypto.randomUUID(), text, done: false }]);
+      setNewChecklistText('');
+    }
 
     return (
       <div className="lb on" onClick={(event) => { if (event.target === event.currentTarget) setLightbox(null); }}>
-        <button className="lb-back" aria-label="Назад" onClick={() => setLightbox(null)}><Icon name="back" /></button>
+        <div className="lb-crumbs">
+          <button className="lb-crumb-back" aria-label="Назад" onClick={() => setLightbox(null)}><Icon name="back" /></button>
+          <button className="lb-crumb" onClick={() => { setLightbox(null); setActiveProject('all'); setActive('all'); }}>embeddd</button>
+          {board && <><span>/</span><button className="lb-crumb" onClick={() => { setLightbox(null); setActiveProject(board.project_id || 'all'); setActive(board.id); }}>{board.name}</button></>}
+          <span>/</span><b className="lb-crumb-current">{it.title || 'Без названия'}</b>
+        </div>
         <div className="lb-layout"><div className="pin-detail">
           <div className="pin-detail-media">{it.kind === 'video' ? <video src={it.src || ''} poster={it.thumb && it.thumb !== it.src ? it.thumb : undefined} controls autoPlay playsInline preload="metadata" /> : <img src={it.src || it.thumb || ''} alt={it.title || ''} />}<button className={'detail-favorite' + (it.fav ? ' on' : '')} aria-label={it.fav ? 'Убрать из избранного' : 'Добавить в избранное'} title="Избранное" onClick={() => void patch(it.id, { fav: !it.fav })}><Icon name={it.fav ? 'unfavorite' : 'favorite'} /></button></div>
           <div className="pin-detail-info">
@@ -1961,12 +1978,30 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             {movingCard && <div className="detail-move"><select autoFocus value={it.collection_id || ''} onChange={(event) => { void patch(it.id, { collectionId: event.target.value || null }); setMovingCard(false); }}><option value="">Без борда</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></div>}
             <h2>{it.title || 'Без названия'}</h2>
             <div className="description-field">{editingDescription ? <textarea autoFocus value={description} placeholder="Добавить описание…" onChange={(event) => setDescription(event.target.value)} onBlur={() => { void patch(it.id, { note: description }); setEditingDescription(false); }} /> : <button className={'description-read' + (!description ? ' empty' : '')} onClick={() => setEditingDescription(true)}>{description || 'Добавить описание'}</button>}</div>
+            <div className="detail-checklist">
+              <div className="detail-checklist-head">Чек-лист</div>
+              {checklist.map((entry) => (
+                <label key={entry.id} className="checklist-row">
+                  <input type="checkbox" checked={entry.done} onChange={() => updateChecklist(checklist.map((e) => e.id === entry.id ? { ...e, done: !e.done } : e))} />
+                  <span className={entry.done ? 'done' : ''}>{entry.text}</span>
+                  <button aria-label="Удалить пункт" onClick={() => updateChecklist(checklist.filter((e) => e.id !== entry.id))}><Icon name="close" /></button>
+                </label>
+              ))}
+              <div className="checklist-add-row">
+                <input value={newChecklistText} placeholder="Добавить пункт" onChange={(event) => setNewChecklistText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addChecklistItem(); }} />
+                <button aria-label="Добавить пункт" onClick={addChecklistItem}><Icon name="plus" /></button>
+              </div>
+            </div>
             {!!it.tags?.length && <div className="lb-tags">{it.tags.map((tag) => <button key={tag} onClick={(event) => {
             event.stopPropagation(); setSelectedTag(tag); setActive('all'); setLightbox(null);
           }}>#{tag}</button>)}</div>}
             {(project || board) && <div className="detail-location">{project && <button onClick={() => { setLightbox(null); setActiveProject(project.id); setActive('all'); }}><small>Проект</small><b>{project.name}</b></button>}{board && <button onClick={() => { setLightbox(null); setActiveProject(board.project_id || 'all'); setActive(board.id); }}><small>Борд</small><b>{board.name}</b></button>}</div>}
           </div>
-        </div>{!!recommendations.length && <aside className="detail-related">{recommendations.map((item) => <button key={item.id} onClick={() => setLightbox(item.id)}>{item.kind === 'video' ? <video muted playsInline preload="metadata" poster={item.thumb && item.thumb !== item.src ? item.thumb : undefined} src={item.src || ''} /> : <img src={item.thumb || item.src || ''} alt="" />}<b>{item.title || 'Без названия'}</b></button>)}</aside>}</div>
+        </div>{!!related.length && <aside className="detail-related">
+          <div className="detail-related-head">{relatedTitle}</div>
+          {related.map((item) => <button key={item.id} onClick={() => setLightbox(item.id)}>{item.kind === 'video' ? <video muted playsInline preload="metadata" poster={item.thumb && item.thumb !== item.src ? item.thumb : undefined} src={item.src || ''} /> : <img src={item.thumb || item.src || ''} alt="" />}<b>{item.title || 'Без названия'}</b></button>)}
+          {board && <button className="detail-related-more" onClick={() => { setLightbox(null); setActiveProject(board.project_id || 'all'); setActive(board.id); }}>Смотреть все в «{board.name}» →</button>}
+        </aside>}</div>
       </div>
     );
   }
@@ -2013,14 +2048,13 @@ function AutoVideo({ src, className, poster }: { src: string; className: string;
     onMouseEnter={(event) => { void event.currentTarget.play().catch(() => {}); }} onMouseLeave={(event) => event.currentTarget.pause()} />{duration > 0 && <span className="video-duration">{formatDuration(duration)}</span>}</>;
 }
 
-function Icon({ name, className }: { name: 'search' | 'close' | 'award' | 'sort' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' | 'logout' | 'folder' | 'merge' | 'board' | 'home' | 'chevron'; className?: string }) {
+function Icon({ name, className }: { name: 'search' | 'close' | 'award' | 'move' | 'check' | 'back' | 'settings' | 'plus' | 'archive' | 'trash' | 'restore' | 'edit' | 'favorite' | 'unfavorite' | 'logout' | 'folder' | 'merge' | 'board' | 'home' | 'chevron'; className?: string }) {
   const paths: Record<typeof name, React.ReactNode> = {
     home: <><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9"/></>,
     chevron: <path d="m6 9 6 6 6-6"/>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     close: <><path d="M6 6l12 12M18 6 6 18"/></>,
     award: <><circle cx="12" cy="9" r="5"/><path d="m8.5 13-1 8 4.5-2.5L16.5 21l-1-8"/><path d="m10 9 1.3 1.3L14 7.7"/></>,
-    sort: <><path d="M8 4v16M5 7l3-3 3 3M16 20V4M13 17l3 3 3-3"/></>,
     move: <><path d="M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4"/></>,
     check: <path d="m5 12 4 4L19 6"/>,
     back: <><path d="m15 18-6-6 6-6"/><path d="M9 12h11"/></>,

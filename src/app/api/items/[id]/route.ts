@@ -27,6 +27,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const tags = [...new Set(p.tags.map((tag: unknown) => String(tag).trim().toLocaleLowerCase()).filter(Boolean))].slice(0, 12);
     await sql`update items set tags = ${tags} where id = ${id}`;
   }
+  if ('checklist' in p && Array.isArray(p.checklist)) {
+    const checklist = p.checklist.slice(0, 100).map((entry: unknown) => {
+      const value = entry as { id?: unknown; text?: unknown; done?: unknown };
+      return { id: String(value.id || ''), text: String(value.text || '').slice(0, 300), done: !!value.done };
+    }).filter((entry: { id: string }) => entry.id);
+    await sql`update items set checklist = ${JSON.stringify(checklist)}::jsonb where id = ${id}`;
+  }
 
   const rows = (await sql`select * from items where id = ${id}`) as unknown[];
   return NextResponse.json(rows[0] ?? null);
