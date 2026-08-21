@@ -205,7 +205,10 @@ button{cursor:pointer;border:none;background:none;padding:0}
 .project-hero-info{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:9px;min-width:200px}
 .project-hero-info h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em}
 .project-hero-meta{display:flex;flex-wrap:wrap;gap:6px 12px;color:var(--muted);font-size:12.5px}
-.project-hero-edit{margin-top:2px}
+.project-hero-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:2px}
+.project-hero-share{padding:9px 13px;border-radius:999px;background:rgba(198,240,74,.18);color:var(--ink);font-size:12px;font-weight:600;max-width:100%}
+.project-hero-share b{font-weight:700;word-break:break-all}
+.project-hero-share:hover{background:rgba(198,240,74,.3)}
 .project-hero-cover{position:relative;flex:1 1 auto;min-width:240px;max-width:560px;height:180px;margin-left:auto;border-radius:20px;overflow:hidden;background:var(--hover)}
 .project-hero-cover>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .project-hero-cover-empty{position:absolute;inset:0;background:linear-gradient(135deg,var(--hover),var(--line-soft))}

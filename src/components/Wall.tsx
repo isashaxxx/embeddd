@@ -853,6 +853,14 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     setProjectModal(null);
   }
 
+  async function makeProjectPublic(project: Project) {
+    const res = await fetch(`/api/projects/${project.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accessMode: 'link' }) });
+    if (!res.ok) return say('Не удалось опубликовать проект');
+    const updated: Project = await res.json();
+    setProjects((current) => current.map((value) => value.id === updated.id ? updated : value));
+    say('Проект опубликован');
+  }
+
   async function deleteProject(project: Project) {
     // Удаление проекта каскадно сносит все его борды и все карточки в них.
     const boardIds = new Set(collections.filter((c) => c.project_id === project.id).map((c) => c.id));
@@ -1262,7 +1270,16 @@ export default function Wall({ initialProjects, initialCollections, initialItems
                   <span>{projectItemCount} {plural(projectItemCount, 'карточка', 'карточки', 'карточек')}</span>
                   <span>{projectCollections.length} {plural(projectCollections.length, 'борд', 'борда', 'бордов')}</span>
                 </div>
-                <button className="btn ghost project-hero-edit" onClick={() => setProjectModal(currentProject)}>Изменить проект</button>
+                <div className="project-hero-actions">
+                  <button className="btn ghost project-hero-edit" onClick={() => setProjectModal(currentProject)}>Изменить проект</button>
+                  {currentProject.access_mode === 'link' && currentProject.share_token ? (
+                    <button className="project-hero-share" onClick={() => { navigator.clipboard.writeText(`${location.origin}/${encodeURIComponent(account?.nickname || 'embeddd')}/${currentProject.slug}`); say('Ссылка скопирована'); }}>
+                      Ссылка на проект: <b>{(typeof window !== 'undefined' ? window.location.host : '')}/{account?.nickname || 'embeddd'}/{currentProject.slug}</b>
+                    </button>
+                  ) : (
+                    <button className="btn ghost" onClick={() => void makeProjectPublic(currentProject)}>Сделать публичным</button>
+                  )}
+                </div>
               </div>
               <div className="project-hero-cover">
                 {currentProject.cover_url ? <img src={currentProject.cover_url} alt="" /> : projectCoverThumbs.length ? (
