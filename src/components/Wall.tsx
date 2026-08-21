@@ -1264,7 +1264,7 @@ export default function Wall({ initialProjects, initialCollections, initialItems
         {item.kind === 'text' && createElement(item.text_style === 'p' || !item.text_style ? 'p' : item.text_style, { className: `content-block text-block text-${item.text_style || 'p'}` }, item.note)}
         {item.kind === 'heading' && <h2 className="content-block text-block text-h2">{item.note || item.title}</h2>}
         {item.kind === 'callout' && <div className="content-block callout-block"><span>{item.title || '💡'}</span><p>{item.note}</p></div>}
-        {item.kind === 'html' && <div ref={boxRef} className="html-block" style={{ height: (item.embed_h || 280) + 'px' }}><iframe title="HTML-блок" sandbox="allow-scripts" srcDoc={item.note} /></div>}
+        {item.kind === 'html' && <div ref={boxRef} className="html-block" style={{ height: (item.embed_h || 280) + 'px' }}><iframe title="HTML-блок" sandbox="allow-same-origin" srcDoc={item.note} /></div>}
         {item.kind === 'divider' && <div className="divider-block"><i /></div>}
         {isWidgetKind(item.kind) && (
           <div className="content-block widget-block" onClick={(e) => e.stopPropagation()}>

@@ -1,19 +1,18 @@
 import { NextResponse } from 'next/server';
 import { db, uid } from '@/lib/db';
+import { requireAuth } from '@/lib/auth-guard';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
 
-/**
- * Принимает JSON из локальной версии (moodboard.html → «Сохранить копию»).
- * Локальные файлы там лежат как base64 и сюда не переносятся — только ссылки и эмбеды.
- */
 export async function POST(req: Request) {
+  const ok = await requireAuth(req);
+  if (!ok) return NextResponse.json({ error: 'Нужен вход' }, { status: 401 });
+
+  const sql = db();
   const data = await req.json();
   const st = data?.state;
   if (!st?.items) return NextResponse.json({ error: 'Не тот файл' }, { status: 400 });
 
-  const sql = db();
   const map = new Map<string, string>();
   let pos = 0;
   let skipped = 0;

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "db:push": "node scripts/migrate.mjs"
+    "db:push": "node scripts/migrate.mjs",
+    "db:maintain": "node scripts/maintain.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

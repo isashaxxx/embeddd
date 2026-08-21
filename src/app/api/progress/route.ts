@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/auth-guard';
 import { maintainLibrary } from '@/lib/maintenance';
 
 export const dynamic = 'force-dynamic';
 
+// Публичные achievement-определения.
 const definitions = [
   { key: 'hello', title: 'Добро пожаловать', description: 'Посетить embeddd', icon: '👋', xp: 10, metric: 'visits', target: 1 },
   { key: 'first_item', title: 'Первый референс', description: 'Добавить первую карточку', icon: '📌', xp: 20, metric: 'items', target: 1 },
@@ -14,8 +16,12 @@ const definitions = [
   { key: 'fifty_items', title: 'Архивариус', description: 'Собрать 50 карточек', icon: '🏆', xp: 150, metric: 'items', target: 50 },
 ] as const;
 
-export async function GET() {
-  await maintainLibrary().catch((error) => console.error('Library maintenance failed', error));
+export async function GET(req: Request) {
+  // /api/progress — публичный для гостей (отображает достижения без архивного обслуживания).
+  return buildProgress();
+}
+
+async function buildProgress() {
   const sql = db();
   await sql`insert into user_stats (id, visits, last_visit) values ('main', 0, null) on conflict (id) do nothing`;
   await sql`update user_stats set visits = visits + 1, last_visit = current_date where id = 'main' and last_visit is distinct from current_date`;
@@ -27,7 +33,8 @@ export async function GET() {
       (select count(*)::int from items where cardinality(tags) > 0) as tagged,
       (select visits from user_stats where id = 'main') as visits,
       (select ai_credits from user_stats where id = 'main') as ai_credits` as unknown as Record<string, number>[];
-  const before = await sql`select key, unlocked_at from achievements` as unknown as { key: string; unlocked_at: string }[];
+
+  const before = await sql`select key from achievements` as unknown as { key: string }[];
   const beforeKeys = new Set(before.map((row) => row.key));
 
   for (const achievement of definitions) {
@@ -44,6 +51,7 @@ export async function GET() {
     unlocked_at: unlocked.get(achievement.key) || null,
     progress: Math.min(Number(counts[achievement.metric] || 0), achievement.target),
   }));
+
   const xp = achievements.filter((achievement) => achievement.unlocked).reduce((sum, achievement) => sum + achievement.xp, 0);
   const level = xp >= 450 ? 4 : xp >= 250 ? 3 : xp >= 100 ? 2 : 1;
   const nextLevelXp = level === 1 ? 100 : level === 2 ? 250 : level === 3 ? 450 : 450;

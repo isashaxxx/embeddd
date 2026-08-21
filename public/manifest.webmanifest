@@ -5,7 +5,10 @@
   "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#FFFFFF",
-  "icons": [{ "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }],
+  "icons": [
+    { "src": "/favicon.ico", "sizes": "32x32 16x16", "type": "image/x-icon" },
+    { "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
   "share_target": {
     "action": "/share",
     "method": "GET",

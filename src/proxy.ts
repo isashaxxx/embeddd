@@ -5,23 +5,30 @@ export async function proxy(req: NextRequest) {
   const ok = await verify(req.cookies.get(COOKIE)?.value);
   const { pathname } = req.nextUrl;
 
-  if (pathname.startsWith('/c/')) return NextResponse.next();
+  // Публичные роуты — не требуют auth.
+  if (pathname.startsWith('/c/') || pathname.startsWith('/login') || pathname.startsWith('/api/auth')) {
+    if (ok && pathname === '/login') return NextResponse.redirect(new URL('/', req.url));
+    return NextResponse.next();
+  }
 
-  // Публичные ссылки на проект вида /username/slug — доступ решает сама
-  // страница (совпадение ника + access_mode = 'link'), не эта проверка.
-  const segments = pathname.split('/').filter(Boolean);
-  const reserved = new Set(['login', 'api', 'boards', 'projects', 'posts', 'share', 'c']);
-  if (segments.length === 2 && !reserved.has(segments[0])) return NextResponse.next();
+  // /api/progress и /api/state — публичные для гостей.
+  if (pathname === '/api/progress' || pathname === '/api/state') return NextResponse.next();
 
-  if (ok && pathname === '/login') return NextResponse.redirect(new URL('/', req.url));
   if (ok) return NextResponse.next();
 
-  if (pathname.startsWith('/api'))
+  if (pathname.startsWith('/api')) {
     return NextResponse.json({ error: 'Нужен вход' }, { status: 401 });
+  }
 
-  return NextResponse.redirect(new URL('/login', req.url));
+  // Редирект на логин — сохраняем намерение.
+  const url = req.nextUrl.clone();
+  url.pathname = '/login';
+  url.searchParams.set('callbackUrl', pathname);
+  return NextResponse.redirect(url);
 }
 
 export const config = {
-  matcher: ['/((?!login|api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.svg|logo.svg).*)'],
+  matcher: [
+    '/((?!login|api/auth|c/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icon.svg|logo.svg).*)',
+  ],
 };
