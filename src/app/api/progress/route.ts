@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/auth-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,13 @@ const definitions = [
   { key: 'fifty_items', title: 'Архивариус', description: 'Собрать 50 карточек', icon: '🏆', xp: 150, metric: 'items', target: 50 },
 ] as const;
 
-export async function GET() {
+// /api/progress отдаёт статистику и достижения владельца — не публичный
+// эндпоинт. proxy.ts уже требует сессию для всех /api/*, здесь — defense in
+// depth на случай, если правило матчера когда-нибудь снова изменят.
+export async function GET(req: Request) {
+  const ok = await requireAuth(req);
+  if (!ok) return NextResponse.json({ error: 'Нужен вход' }, { status: 401 });
+
   const sql = db();
   await sql`insert into user_stats (id, visits, last_visit) values ('main', 0, null) on conflict (id) do nothing`;
   await sql`update user_stats set visits = visits + 1, last_visit = current_date where id = 'main' and last_visit is distinct from current_date`;
@@ -58,6 +65,9 @@ export async function GET() {
 
 /** Ручное пополнение AI-кредитов (например, для тестирования — постоянного авто-пополнения нет). */
 export async function PATCH(req: Request) {
+  const ok = await requireAuth(req);
+  if (!ok) return NextResponse.json({ error: 'Нужен вход' }, { status: 401 });
+
   const body = await req.json().catch(() => ({}));
   const delta = Number.isFinite(body?.delta) && body.delta > 0 ? Math.min(Math.round(body.delta), 1000) : 100;
   const sql = db();

@@ -8,14 +8,15 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'embeddd',
-  description: 'Коллекции референсов: ссылки, картинки, видео — в одной сетке',
+  title: 'embeddd — коллекции референсов',
+  description: 'Коллекции референсов: ссылки, картинки, видео — в одной сетке. Pinterest-подобная лента с коллекциями и заметками.',
   manifest: '/manifest.webmanifest',
   icons: {
-    icon: [{ url: '/logo.svg', type: 'image/svg+xml' }],
-    shortcut: '/logo.svg',
+    icon: [{ url: '/favicon.ico', type: 'image/x-icon', sizes: '32x32' }],
+    shortcut: '/favicon.ico',
     apple: '/logo.svg',
   },
+  robots: { index: false },
 };
 
 export const viewport: Viewport = {

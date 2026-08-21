@@ -19,7 +19,10 @@ export async function proxy(req: NextRequest) {
   if (pathname.startsWith('/api'))
     return NextResponse.json({ error: 'Нужен вход' }, { status: 401 });
 
-  return NextResponse.redirect(new URL('/login', req.url));
+  const url = req.nextUrl.clone();
+  url.pathname = '/login';
+  url.searchParams.set('callbackUrl', pathname);
+  return NextResponse.redirect(url);
 }
 
 export const config = {
