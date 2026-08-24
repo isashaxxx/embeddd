@@ -338,15 +338,31 @@ export default function Wall({ initialProjects, initialCollections, initialItems
   useEffect(() => {
     const grid = gridRef.current;
     if (!grid) return;
+    // Никогда не коммитим измеренную ширину 0 в state — это временное
+    // значение до того, как браузер успел посчитать раскладку (в частности
+    // сразу после подключения веб-шрифта), а не реальный размер контейнера.
+    // Без этой защиты карточки на миг проваливались в CSS-фолбэк
+    // `.grid-item{width:50%}` и там и оставались, пока ResizeObserver не
+    // поймает следующее реальное изменение размера — а на статичном окне
+    // оно могло не наступить никогда.
     const measure = () => {
       const width = grid.getBoundingClientRect().width;
+      if (!width) return;
       const columns = width >= 1280 ? 6 : width >= 1000 ? 5 : width >= 760 ? 4 : width >= 520 ? 3 : 2;
       setGridMetrics((current) => current.width === width && current.columns === columns ? current : { width, columns });
     };
     const observer = new ResizeObserver(measure);
     observer.observe(grid);
     measure();
-    return () => observer.disconnect();
+    const frame = requestAnimationFrame(measure);
+    const timer = setTimeout(measure, 300);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      window.removeEventListener('resize', measure);
+    };
   }, []);
 
   // Muuri owns geometry and sorting. React owns content and persistence.
@@ -1945,9 +1961,9 @@ export default function Wall({ initialProjects, initialCollections, initialItems
     const board = collections.find((value) => value.id === it.collection_id);
     const project = projects.find((value) => value.id === board?.project_id);
     const checklist = it.checklist || [];
-    const related = board
-      ? items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && value.collection_id === board.id).slice(0, 6)
-      : items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && value.tags?.some((tag) => it.tags?.includes(tag))).slice(0, 6);
+    const boardMates = board ? items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && value.collection_id === board.id) : [];
+    const tagMates = items.filter((value) => value.id !== it.id && !value.archived_at && (value.thumb || value.src) && !boardMates.includes(value) && value.tags?.some((tag) => it.tags?.includes(tag)));
+    const related = [...boardMates, ...tagMates].slice(0, 6);
     const relatedTitle = board ? `Другие в «${board.name}»` : 'Похожие карточки';
 
     function updateChecklist(next: ChecklistItem[]) { void patch(it!.id, { checklist: next }); }
@@ -1981,11 +1997,11 @@ export default function Wall({ initialProjects, initialCollections, initialItems
             <div className="detail-checklist">
               <div className="detail-checklist-head">Чек-лист</div>
               {checklist.map((entry) => (
-                <label key={entry.id} className="checklist-row">
-                  <input type="checkbox" checked={entry.done} onChange={() => updateChecklist(checklist.map((e) => e.id === entry.id ? { ...e, done: !e.done } : e))} />
+                <div key={entry.id} className="checklist-row">
+                  <button className={'checklist-check' + (entry.done ? ' on' : '')} aria-label={entry.done ? 'Снять отметку' : 'Отметить выполненным'} onClick={() => updateChecklist(checklist.map((e) => e.id === entry.id ? { ...e, done: !e.done } : e))}>{entry.done && <Icon name="check" />}</button>
                   <span className={entry.done ? 'done' : ''}>{entry.text}</span>
-                  <button aria-label="Удалить пункт" onClick={() => updateChecklist(checklist.filter((e) => e.id !== entry.id))}><Icon name="close" /></button>
-                </label>
+                  <button className="checklist-remove" aria-label="Удалить пункт" onClick={() => updateChecklist(checklist.filter((e) => e.id !== entry.id))}><Icon name="close" /></button>
+                </div>
               ))}
               <div className="checklist-add-row">
                 <input value={newChecklistText} placeholder="Добавить пункт" onChange={(event) => setNewChecklistText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addChecklistItem(); }} />

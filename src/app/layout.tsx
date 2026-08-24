@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from 'next';
+import { Manrope } from 'next/font/google';
 import './globals.css';
+
+const manrope = Manrope({ subsets: ['latin', 'cyrillic'], variable: '--font-manrope', display: 'swap' });
 
 export const metadata: Metadata = {
   title: 'embeddd',
@@ -21,7 +24,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const mediaOrigin = process.env.R2_PUBLIC_URL;
   return (
-    <html lang="ru">
+    <html lang="ru" className={manrope.variable}>
       {mediaOrigin && <head><link rel="preconnect" href={mediaOrigin} crossOrigin="anonymous" /></head>}
       <body>{children}</body>
     </html>
