@@ -1,5 +1,6 @@
 import type { ServerResponse } from 'node:http'
 import type { Connect } from 'vite'
+import { safeFetch, toPublicUrl } from './safeFetch.js'
 
 // Server-side link preview: fetching OpenGraph / oEmbed from the browser is
 // blocked by CORS, so the dev (and preview) server does it for the client.
@@ -17,29 +18,6 @@ const BROWSER_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36'
 
 const cache = new Map<string, UnfurlResult>()
-
-function isPublicHttpUrl(raw: string): URL | null {
-  let u: URL
-  try {
-    u = new URL(raw)
-  } catch {
-    return null
-  }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
-  const h = u.hostname
-  if (
-    h === 'localhost' ||
-    h.endsWith('.local') ||
-    /^(127|10|0)\./.test(h) ||
-    /^192\.168\./.test(h) ||
-    /^169\.254\./.test(h) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
-    h.startsWith('[')
-  ) {
-    return null
-  }
-  return u
-}
 
 function decodeEntities(s: string) {
   return s
@@ -74,15 +52,15 @@ function parseMeta(html: string): PageMeta {
 }
 
 async function fetchPage(url: string, ua: string) {
-  const res = await fetch(url, {
+  const { response: res, url: finalUrl } = await safeFetch(url, {
     headers: { 'user-agent': ua, 'accept-language': 'en-US,en;q=0.9', accept: 'text/html,*/*' },
-    redirect: 'follow',
     signal: AbortSignal.timeout(9000),
   })
   const type = res.headers.get('content-type') ?? ''
   // Error pages (e.g. CDN bot blocks) have titles too; don't mistake them for content.
   const html = res.ok && type.includes('html') ? (await res.text()).slice(0, 2_000_000) : ''
-  return { finalUrl: res.url || url, html }
+  if (!html) await res.body?.cancel()
+  return { finalUrl, html }
 }
 
 function oembedEndpoint(u: URL): string | null {
@@ -105,8 +83,8 @@ function youtubeId(u: URL): string | null {
 
 async function exists(url: string) {
   try {
-    const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
-    return res.ok
+    const { response } = await safeFetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+    return response.ok
   } catch {
     return false
   }
@@ -133,12 +111,12 @@ async function unfurl(raw: string): Promise<UnfurlResult> {
   }
 
   const result: UnfurlResult = { url: finalUrl, ...og }
-  const target = isPublicHttpUrl(finalUrl)
+  const target = toPublicUrl(finalUrl)
 
   const endpoint = target && oembedEndpoint(target)
   if (endpoint) {
     try {
-      const res = await fetch(endpoint, { signal: AbortSignal.timeout(8000) })
+      const { response: res } = await safeFetch(endpoint, { signal: AbortSignal.timeout(8000) })
       if (res.ok) {
         const data = (await res.json()) as Record<string, string>
         result.title = data.title || result.title
@@ -180,7 +158,7 @@ export const unfurlHandler: Connect.NextHandleFunction = async (req, res, next) 
   const reqUrl = new URL(req.url ?? '/', 'http://local')
   if (reqUrl.pathname !== '/api/unfurl' && reqUrl.pathname !== '/api/img') return next()
 
-  const target = isPublicHttpUrl(reqUrl.searchParams.get('url') ?? '')
+  const target = toPublicUrl(reqUrl.searchParams.get('url') ?? '')
   if (!target) return sendJson(res, 400, { error: 'invalid url' })
 
   try {
@@ -191,12 +169,15 @@ export const unfurlHandler: Connect.NextHandleFunction = async (req, res, next) 
 
     // Image proxy: CDN thumbnails (Instagram, TikTok) block hotlinking and
     // their signed URLs expire, so the client downloads them once via here.
-    const upstream = await fetch(target, {
+    const { response: upstream } = await safeFetch(target.toString(), {
       headers: { 'user-agent': BROWSER_UA },
       signal: AbortSignal.timeout(10000),
     })
     const type = upstream.headers.get('content-type') ?? ''
-    if (!upstream.ok || !type.startsWith('image/')) return sendJson(res, 502, { error: 'not an image' })
+    if (!upstream.ok || !type.startsWith('image/')) {
+      await upstream.body?.cancel()
+      return sendJson(res, 502, { error: 'not an image' })
+    }
     res.statusCode = 200
     res.setHeader('content-type', type)
     res.setHeader('cache-control', 'public, max-age=86400')
